@@ -33,7 +33,7 @@ document.getElementById("login-btn").addEventListener("click", login);
 document.getElementById("submit-btn").addEventListener("click", createSuggestion);
 document.getElementById("logout-btn").addEventListener("click", logout);
 
-
+ 
 // 生徒のログイン状態を監視する
 onAuthStateChanged(auth, async (user) => {
     const loginBtn = document.getElementById("login-btn");
