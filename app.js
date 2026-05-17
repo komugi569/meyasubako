@@ -19,7 +19,6 @@ const firebaseConfig = {
   measurementId: "G-Y57PT610HG"
 };
 
-const analytics = getAnalytics(app);
 
 // Firebaseの初期化
 const app = initializeApp(firebaseConfig);
