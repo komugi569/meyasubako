@@ -28,6 +28,39 @@ main {
     padding: 0 15px;
 }
 
+.kairu-assistant {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: 9999;
+    width: min(360px, 58vw);
+    pointer-events: none;
+    text-align: right;
+}
+
+#kairu-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: pixelated;
+}
+
+.kairu-textbox {
+    box-sizing: border-box;
+    width: min(340px, 54vw);
+    margin: 8px 8px 0 auto;
+    padding: 12px 14px;
+    background-color: #fff8cc;
+    border: 2px solid #777;
+    box-shadow: 3px 3px 0 #333;
+    color: #111;
+    font-family: "MS PGothic", "MS Gothic", Meiryo, sans-serif;
+    font-size: clamp(14px, 2.4vw, 22px);
+    font-weight: bold;
+    line-height: 1.35;
+    text-align: left;
+}
+
 /* 白いカード型の背景設定 */
 .post-section, .suggestion-card {
     background-color: white;

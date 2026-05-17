@@ -30,17 +30,21 @@
    
 </header>
 
+<div class="kairu-assistant" aria-live="polite">
+    <div id="kairu-textbox" class="kairu-textbox">何かお困りのことはありますか？</div>
+    <img id="kairu-image" src="kairu.png" alt="カイル" width="320" height="320">
+</div>
 
     <main>
         <div class="tab-buttons" style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;">
-    <button onclick="switchTab('post')" style="padding: 10px 20px; cursor: pointer;">📝 投稿する</button>
-    <button onclick="switchTab('popular')" style="padding: 10px 20px; cursor: pointer;">🔥 人気順</button>
-    <button onclick="switchTab('new')" style="padding: 10px 20px; cursor: pointer;">✨ 新着順</button>
+    <button data-tab="post" style="padding: 10px 20px; cursor: pointer;">📝 投稿する</button>
+    <button data-tab="popular" style="padding: 10px 20px; cursor: pointer;">🔥 人気順</button>
+    <button data-tab="new" style="padding: 10px 20px; cursor: pointer;">✨ 新着順</button>
 </div>
 
 <div id="post-section">
     <textarea id="suggestion-input" placeholder="学校を良くする意見を書いてね..." style="width: 100%; height: 100px; margin-bottom: 10px;"></textarea>
-    <button id="submit-btn" onclick="createSuggestion()" style="padding: 10px; width: 100%;">投稿する</button>
+    <button id="submit-btn" style="padding: 10px; width: 100%;">投稿する</button>
 </div>
 
 <div id="list-section" style="display: none;">
@@ -49,4 +53,4 @@
     </main>
     <script type="module" src="app.js"></script>
 </body>
-</html> v
+</html>
