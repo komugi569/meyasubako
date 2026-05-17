@@ -1,31 +1,29 @@
 import os
+import json
+import urllib.request
+import urllib.error
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 
-# 💡 安定版のGeminiライブラリに戻します
-import google.generativeai as genai
-
 app = FastAPI()
 
 # =================================================================
-# 🤖 1. Gemini AI フィルタリング機能（安定版）
+# 🤖 1. Gemini AI フィルタリング（SDK不使用・最強REST API版）
 # =================================================================
-# Vercel上の環境変数に「GEMINI_API_KEY」があればAIを初期化
-if "GEMINI_API_KEY" in os.environ:
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-
 def is_safe_with_ai(text: str) -> bool:
     """投稿内容が適切かどうかをAI（Gemini）に判定させる関数"""
-    if "GEMINI_API_KEY" not in os.environ:
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
         print("警告: GEMINI_API_KEY が未設定のため、AIチェックをスキップします。")
         return True
 
     try:
-       
-        model = genai.GenerativeModel('gemini-pro')
+        # 💡 ライブラリを使わず、GoogleのAIサーバーのURLを直接叩きます！
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        headers = {'Content-Type': 'application/json'}
         
         prompt = f"""
         あなたは学校の目安箱の優秀なモデレーターです。
@@ -40,8 +38,19 @@ def is_safe_with_ai(text: str) -> bool:
         {text}
         """
         
-        response = model.generate_content(prompt)
-        return "OK" in response.text.strip()
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+        
+        # Pythonの標準機能だけで通信
+        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+        
+        with urllib.request.urlopen(req) as response:
+            result_data = json.loads(response.read().decode('utf-8'))
+            # AIからの返答テキストを抽出
+            ai_reply = result_data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+            
+        return "OK" in ai_reply
         
     except Exception as e:
         print(f"AIチェックエラー: {e}")
@@ -79,7 +88,6 @@ class SuggestionInput(BaseModel):
     text: str
 
 def get_current_user(authorization: Optional[str] = Header(None)):
-    """送信されてきたGoogleログインのトークンが本物か検証する"""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="ログインが必要です")
     
@@ -91,7 +99,7 @@ def get_current_user(authorization: Optional[str] = Header(None)):
 
 
 # =================================================================
-# 🛣️ 4. APIエンドポイント（フロントエンドとの通信口）
+# 🛣️ 4. APIエンドポイント
 # =================================================================
 
 # --- 意見一覧を取得する ---
@@ -105,7 +113,6 @@ def get_suggestions():
             data = doc.to_dict()
             liked_by = data.get("liked_by", [])
             
-            # JavaScriptが並び替えやすいように、時間を「ミリ秒」に変換
             created_at = data.get("created_at")
             timestamp = created_at.timestamp() * 1000 if created_at else 0
             
@@ -114,7 +121,7 @@ def get_suggestions():
                 "text": data.get("text", ""),
                 "likes": len(liked_by),
                 "created_at": timestamp,
-                "is_form_dummy": data.get("is_form_dummy", False) # フォームのいいね対応用
+                "is_form_dummy": data.get("is_form_dummy", False)
             })
             
         return sorted(suggestions, key=lambda x: x["likes"], reverse=True)
@@ -139,7 +146,7 @@ def create_suggestion(data: SuggestionInput, user: dict = Depends(get_current_us
             "text": text,
             "user_id": user["uid"],
             "liked_by": [],
-            "created_at": firestore.SERVER_TIMESTAMP # 投稿された時間を記録！
+            "created_at": firestore.SERVER_TIMESTAMP 
         })
         return {"status": "success", "id": new_doc_ref.id}
     except Exception as e:
@@ -154,8 +161,6 @@ def like_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
     doc = doc_ref.get()
     
     if not doc.exists:
-        # もしGoogleフォームの意見（form-XXX）に初めていいねが押されたら、
-        # Firestore内に「いいねの数だけを数える専用の箱」を自動で作る！
         if suggestion_id.startswith("form-"):
             doc_ref.set({
                 "is_form_dummy": True,
@@ -170,10 +175,10 @@ def like_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
     liked_by = data.get("liked_by", [])
     
     if user_id in liked_by:
-        liked_by.remove(user_id) # いいね解除
+        liked_by.remove(user_id) 
         status = "unliked"
     else:
-        liked_by.append(user_id) # いいね追加
+        liked_by.append(user_id) 
         status = "liked"
         
     doc_ref.update({"liked_by": liked_by})
