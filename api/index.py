@@ -25,8 +25,8 @@ def is_safe_with_ai(text: str) -> bool:
         return True
 
     try:
-        # 高速・軽量な最新モデルを使用
-        model = genai.GenerativeModel('gemini-1.5-flash')
+  
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         
         # AIへの指示書（プロンプト）
         prompt = f"""
