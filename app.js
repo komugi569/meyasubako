@@ -137,7 +137,7 @@ async function fetchSuggestions() {
     }
 }
 
-// --- 2. 新しい意見を投稿する（要ログイン） ---
+// --- 2. 新しい意見を投稿する（要ログイン・連打防止付き） ---
 async function createSuggestion() {
     if (!currentUserToken) {
         alert("意見を投稿するにはログインが必要です！");
@@ -145,8 +145,13 @@ async function createSuggestion() {
     }
 
     const inputElement = document.getElementById("suggestion-input");
+    const submitBtn = document.getElementById("submit-btn"); // 💡 ボタンを取得
     const text = inputElement.value.trim();
     if (!text) return;
+
+    // 🛡️ ボタンを無効化して連打を防ぐ
+    submitBtn.disabled = true;
+    submitBtn.innerText = "送信中...(AI確認中)";
 
     try {
         const response = await fetch("/api/suggestions", {
@@ -158,11 +163,22 @@ async function createSuggestion() {
             body: JSON.stringify({ text: text })
         });
 
-        if (!response.ok) throw new Error("投稿に失敗しました");
+        if (!response.ok) {
+            // Pythonから送られてきたエラーメッセージ（429など）を読み取って表示
+            const errorData = await response.json();
+            throw new Error(errorData.detail || "投稿に失敗しました");
+        }
+
         inputElement.value = "";
         fetchSuggestions();
     } catch (error) {
-        alert("投稿に失敗しました。学校のアカウントか確認してください。");
+        alert(error.message); // 💡 AIからの警告やエラーをそのまま画面に出す
+    } finally {
+        // 🛡️ 成功しても失敗しても、10秒後にボタンを復活させる（クールダウン）
+        setTimeout(() => {
+            submitBtn.disabled = false;
+            submitBtn.innerText = "投稿する";
+        }, 10000); // 10000ミリ秒 = 10秒
     }
 }
 

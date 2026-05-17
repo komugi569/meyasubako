@@ -11,12 +11,11 @@ from firebase_admin import credentials, firestore, auth
 app = FastAPI()
 
 # =================================================================
-# 🤖 1. Gemini AI フィルタリング（最強REST API・空白除去版）
+# 🤖 1. Gemini AI フィルタリング（最強REST API・完全ブロック版）
 # =================================================================
 def is_safe_with_ai(text: str) -> bool:
     """投稿内容が適切かどうかをAI（Gemini）に判定させる関数"""
     
-    # 💡 【重要】Vercelの環境変数から取得した鍵の、前後の「見えないスペースや改行」を .strip() で完全に削ぎ落とします！
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     
     if not api_key:
@@ -24,7 +23,6 @@ def is_safe_with_ai(text: str) -> bool:
         return True
 
     try:
-
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         
@@ -54,13 +52,19 @@ def is_safe_with_ai(text: str) -> bool:
         return "OK" in ai_reply
         
     except urllib.error.HTTPError as e:
-        # 💡 万が一またエラーになっても、今度は「Googleが何を怒っているか」の詳細な理由をログに残すようにしました
         error_body = e.read().decode('utf-8')
         print(f"AI通信エラー詳細: {e.code} - {error_body}")
-        return True # エラー時はアプリを止めないために通過させる
+        
+        # 🛡️ 429（連打・制限オーバー）の場合
+        if e.code == 429:
+            raise HTTPException(status_code=429, detail="現在アクセスが集中しています。10秒ほど待ってから再度お試しください。")
+            
+        # 🛡️ その他のエラーでAIがダウンしている場合も、安全のために投稿をブロックする
+        raise HTTPException(status_code=500, detail="AIフィルターが一時的に応答していません。時間をおいてお試しください。")
+        
     except Exception as e:
         print(f"AIシステムエラー: {e}")
-        return True
+        raise HTTPException(status_code=500, detail="システムエラーが発生しました。時間をおいてお試しください。")
 
 
 # =================================================================
@@ -142,7 +146,7 @@ def create_suggestion(data: SuggestionInput, user: dict = Depends(get_current_us
     if not text:
         raise HTTPException(status_code=400, detail="内容を入力してください")
         
-    # 🌟 AIに判定してもらう
+    # 🌟 AIに判定してもらう（NGやエラーならここで自動的にHTTPExceptionが発生して止まる）
     if not is_safe_with_ai(text):
         raise HTTPException(status_code=400, detail="不適切な内容のため投稿できません。")
         
