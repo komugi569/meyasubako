@@ -11,61 +11,15 @@ from firebase_admin import credentials, firestore, auth
 app = FastAPI()
 
 # =================================================================
-# 🤖 1. Gemini AI フィルタリング（最強REST API・完全ブロック版）
+# 🤖 1. Gemini AI フィルタリング（※現在一時的にお休み中）
 # =================================================================
 def is_safe_with_ai(text: str) -> bool:
     """投稿内容が適切かどうかをAI（Gemini）に判定させる関数"""
     
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    
-    if not api_key:
-        print("警告: GEMINI_API_KEY が未設定のため、AIチェックをスキップします。")
-        return True
+    # 💡 開発を進めるため、今はどんな言葉も「安全（True）」として通します！
+    return True
 
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-        headers = {'Content-Type': 'application/json'}
-        
-        prompt = f"""
-        あなたは学校の目安箱の優秀なモデレーターです。
-        以下の投稿内容が「学校の目安箱として適切か」を判定し、「OK」または「NG」の2文字だけで答えてください。
-        
-        【NGの条件】
-        ・暴言、誹謗中傷、卑猥な言葉が含まれている
-        ・「ああああ」「www」などの意味のない文字の羅列
-        ・特定の個人や先生、生徒を名指しで攻撃している
-        
-        【投稿内容】
-        {text}
-        """
-        
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}]
-        }
-        
-        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
-        
-        with urllib.request.urlopen(req) as response:
-            result_data = json.loads(response.read().decode('utf-8'))
-            ai_reply = result_data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
-            
-        return "OK" in ai_reply
-        
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8')
-        print(f"AI通信エラー詳細: {e.code} - {error_body}")
-        
-        # 🛡️ 429（連打・制限オーバー）の場合
-        if e.code == 429:
-            raise HTTPException(status_code=429, detail="現在アクセスが集中しています。10秒ほど待ってから再度お試しください。")
-            
-        # 🛡️ その他のエラーでAIがダウンしている場合も、安全のために投稿をブロックする
-        raise HTTPException(status_code=500, detail="AIフィルターが一時的に応答していません。時間をおいてお試しください。")
-        
-    except Exception as e:
-        print(f"AIシステムエラー: {e}")
-        raise HTTPException(status_code=500, detail="システムエラーが発生しました。時間をおいてお試しください。")
-
+# （ここから下の Firebaseの初期化 以降はそのまま残します！）
 
 # =================================================================
 # 🔥 2. Firebase / Firestore の初期化
