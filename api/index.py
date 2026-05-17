@@ -11,17 +11,19 @@ from firebase_admin import credentials, firestore, auth
 app = FastAPI()
 
 # =================================================================
-# 🤖 1. Gemini AI フィルタリング（SDK不使用・最強REST API版）
+# 🤖 1. Gemini AI フィルタリング（最強REST API・空白除去版）
 # =================================================================
 def is_safe_with_ai(text: str) -> bool:
     """投稿内容が適切かどうかをAI（Gemini）に判定させる関数"""
-    api_key = os.environ.get("GEMINI_API_KEY")
+    
+    # 💡 【重要】Vercelの環境変数から取得した鍵の、前後の「見えないスペースや改行」を .strip() で完全に削ぎ落とします！
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    
     if not api_key:
         print("警告: GEMINI_API_KEY が未設定のため、AIチェックをスキップします。")
         return True
 
     try:
-        # 💡 ライブラリを使わず、GoogleのAIサーバーのURLを直接叩きます！
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         
@@ -42,19 +44,22 @@ def is_safe_with_ai(text: str) -> bool:
             "contents": [{"parts": [{"text": prompt}]}]
         }
         
-        # Pythonの標準機能だけで通信
         req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
         
         with urllib.request.urlopen(req) as response:
             result_data = json.loads(response.read().decode('utf-8'))
-            # AIからの返答テキストを抽出
             ai_reply = result_data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
             
         return "OK" in ai_reply
         
-    except Exception as e:
-        print(f"AIチェックエラー: {e}")
+    except urllib.error.HTTPError as e:
+        # 💡 万が一またエラーになっても、今度は「Googleが何を怒っているか」の詳細な理由をログに残すようにしました
+        error_body = e.read().decode('utf-8')
+        print(f"AI通信エラー詳細: {e.code} - {error_body}")
         return True # エラー時はアプリを止めないために通過させる
+    except Exception as e:
+        print(f"AIシステムエラー: {e}")
+        return True
 
 
 # =================================================================
