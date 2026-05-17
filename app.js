@@ -32,32 +32,26 @@ const provider = new GoogleAuthProvider();
 
 let currentUserToken = null; // ログインした生徒の証明書を保存する変数
 
-// 画面が読み込まれたらスタート
-document.addEventListener("DOMContentLoaded", () => {
-    // ログインボタンのイベント設定
-    document.getElementById("login-btn").addEventListener("click", login);
-    document.getElementById("submit-btn").addEventListener("click", createSuggestion);
+// 💡 囲みを外して、直接ボタンに機能を登録します（type="module"なのでこれでも安全に動きます）
+document.getElementById("login-btn").addEventListener("click", login);
+document.getElementById("submit-btn").addEventListener("click", createSuggestion);
 
-    // 生徒のログイン状態を監視する（Firebaseの超便利機能）
-    onAuthStateChanged(auth, async (user) => {
-        const loginBtn = document.getElementById("login-btn");
-        const userInfo = document.getElementById("user-info");
+// 生徒のログイン状態を監視する
+onAuthStateChanged(auth, async (user) => {
+    const loginBtn = document.getElementById("login-btn");
+    const userInfo = document.getElementById("user-info");
 
-        if (user) {
-            // ログインしている場合：証明書（Token）を取得して保持する
-            currentUserToken = await user.getIdToken();
-            loginBtn.style.display = "none";
-            userInfo.style.display = "inline";
-            userInfo.innerText = `ログイン中: ${user.displayName}さん`;
-        } else {
-            // ログインしていない場合
-            currentUserToken = null;
-            loginBtn.style.display = "inline";
-            userInfo.style.display = "none";
-        }
-        // ログイン状態が確定してからランキングを読み込む
-        fetchSuggestions();
-    });
+    if (user) {
+        currentUserToken = await user.getIdToken();
+        loginBtn.style.display = "none";
+        userInfo.style.display = "inline";
+        userInfo.innerText = `ログイン中: ${user.displayName}さん`;
+    } else {
+        currentUserToken = null;
+        loginBtn.style.display = "inline";
+        userInfo.style.display = "none";
+    }
+    fetchSuggestions();
 });
 
 // Googleログインを実行する関数
