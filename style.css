@@ -1,0 +1,145 @@
+/* 全体の設定（背景色やフォント） */
+body {
+    font-family: 'Helvetica Neue', Arial, 'Hiragino Sans', Meiryo, sans-serif;
+    background-color: #f4f7f6;
+    color: #333;
+    margin: 0;
+    padding: 0;
+}
+
+/* ヘッダー（上のタイトル部分） */
+header {
+    background-color: #4CAF50; /* 生徒会らしいクリーンな緑色 */
+    color: white;
+    text-align: center;
+    padding: 15px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+/* メインコンテンツの枠組み（スマホ幅に合わせる） */
+main {
+    max-width: 600px;
+    margin: 20px auto;
+    padding: 0 15px;
+}
+
+/* 白いカード型の背景設定 */
+.post-section, .suggestion-card {
+    background-color: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+}
+
+/* 見出しのデザイン */
+h2 {
+    font-size: 1.2rem;
+    margin-top: 0;
+    border-bottom: 2px solid #4CAF50;
+    padding-bottom: 5px;
+    display: inline-block;
+}
+
+/* 入力ボックス（テキストエリア） */
+textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-sizing: border-box;
+    font-size: 1rem;
+    resize: vertical;
+    margin-bottom: 10px;
+}
+
+/* 投稿ボタン */
+button#submit-btn {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 5px;
+    font-size: 1rem;
+    cursor: pointer;
+    width: 100%;
+    font-weight: bold;
+}
+
+button#submit-btn:hover {
+    background-color: #45a049;
+}
+
+/* 意見リストの・を消す */
+ul#suggestion-list {
+    list-style-type: none;
+    padding: 0;
+}
+
+/* 各意見のカード（横並び設定） */
+.suggestion-card {
+    display: flex;
+    align-items: flex-start;
+}
+
+/* 順位バッジ */
+.rank-badge {
+    width: 30px;
+    height: 30px;
+    background-color: #ccc;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+/* 1位〜3位の色分け */
+.rank-1 { background-color: #FFD700; } /* 金 */
+.rank-2 { background-color: #C0C0C0; } /* 銀 */
+.rank-3 { background-color: #CD7F32; } /* 銅 */
+
+/* 意見の中身 */
+.content {
+    flex-grow: 1;
+}
+
+.text {
+    margin: 0 0 10px 0;
+    line-height: 1.5;
+}
+
+/* いいねボタン周り */
+.actions {
+    display: flex;
+    align-items: center;
+}
+
+.like-btn {
+    background-color: #ffeeee;
+    color: #ff4d4d;
+    border: 1px solid #ffcccc;
+    padding: 6px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    margin-right: 10px;
+    transition: 0.2s;
+}
+
+.like-btn:hover {
+    background-color: #ffcccc;
+}
+
+.like-count {
+    font-weight: bold;
+    color: #555;
+}
