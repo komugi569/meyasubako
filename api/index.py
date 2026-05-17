@@ -9,23 +9,32 @@ import json
 
 app = FastAPI()
 
-# --- Firebaseの初期化（修正版） ---
+# --- Firebaseの初期化（新・絶対に崩れない版） ---
 if not firebase_admin._apps:
-    # 1. Vercel上の環境変数に鍵があるかチェック
-    if "FIREBASE_KEY" in os.environ:
-        # 環境変数の文字列をJSON（辞書型）に変換して読み込む
-        key_dict = json.loads(os.environ["FIREBASE_KEY"])
-        cred = credentials.Certificate(key_dict)
-    # 2. ローカル環境（自分のパソコン）用にファイルがあるかチェック
+    # 1. Vercel上の個別環境変数があるかチェック
+    if "FIREBASE_PROJECT_ID" in os.environ:
+        # 💡 環境変数から取り出した秘密鍵の改行文字(\\n)を、Pythonが理解できる改行に整えます
+        private_key = os.environ["FIREBASE_PRIVATE_KEY"].replace("\\n", "\n")
+        
+        # 必要な情報だけで認証用の辞書を組み立てる
+        cred_dict = {
+            "type": "service_account",
+            "project_id": os.environ["FIREBASE_PROJECT_ID"],
+            "private_key": private_key,
+            "client_email": os.environ["FIREBASE_CLIENT_EMAIL"],
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+        cred = credentials.Certificate(cred_dict)
+        
+    # 2. ローカル環境（自分のパソコン）用
     elif os.path.exists("firebase-key.json"):
         cred = credentials.Certificate("firebase-key.json")
     else:
-        raise Exception("Firebaseの鍵が見つかりません。環境変数かファイルを確認してください。")
+        raise Exception("Firebaseの認証情報が見つかりません。")
         
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
-
 
 # --- データの型定義 ---
 class SuggestionInput(BaseModel):
