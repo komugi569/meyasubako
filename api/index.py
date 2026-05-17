@@ -3,16 +3,29 @@ from pydantic import BaseModel
 from typing import List, Optional
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
+# 💡 以下の2つのライブラリを新しくインポートします
+import os
+import json
 
 app = FastAPI()
 
-# --- Firebaseの初期化 ---
-# 初回起動時のみ、ダウンロードした秘密鍵を使ってFirebaseと接続します
+# --- Firebaseの初期化（修正版） ---
 if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase-key.json")
+    # 1. Vercel上の環境変数に鍵があるかチェック
+    if "FIREBASE_KEY" in os.environ:
+        # 環境変数の文字列をJSON（辞書型）に変換して読み込む
+        key_dict = json.loads(os.environ["FIREBASE_KEY"])
+        cred = credentials.Certificate(key_dict)
+    # 2. ローカル環境（自分のパソコン）用にファイルがあるかチェック
+    elif os.path.exists("firebase-key.json"):
+        cred = credentials.Certificate("firebase-key.json")
+    else:
+        raise Exception("Firebaseの鍵が見つかりません。環境変数かファイルを確認してください。")
+        
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
+
 
 # --- データの型定義 ---
 class SuggestionInput(BaseModel):
