@@ -1,5 +1,15 @@
 <!DOCTYPE html>
 <html lang="ja">
+
+    <script type="importmap">
+  {
+    "imports": {
+      "firebase/app": "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js",
+      "firebase/auth": "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js"
+    }
+  }
+</script>
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +17,16 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<header>
+    <h1>みんなの目安箱 📮</h1>
+    <div id="auth-area" style="margin-top: 10px;">
+        <button id="login-btn" style="padding: 5px 10px; cursor: pointer;">Googleアカウントでログイン</button>
+        <span id="user-info" style="display: none; color: white;"></span>
+    </div>
+</header>
+
+
     <header>
         <h1>みんなの目安箱 📮</h1>
     </header>
@@ -27,6 +47,6 @@
             </ul>
         </section>
     </main>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>
