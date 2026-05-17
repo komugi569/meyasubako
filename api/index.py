@@ -24,8 +24,8 @@ def is_safe_with_ai(text: str) -> bool:
         return True
 
     try:
-        # 💡 404エラー対策！確実に動く最新モデル名に変更しました
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+       
+        model = genai.GenerativeModel('gemini-pro')
         
         prompt = f"""
         あなたは学校の目安箱の優秀なモデレーターです。
