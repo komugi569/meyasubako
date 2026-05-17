@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "firebase/auth";
+import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged ,signOut} from "firebase/auth";
 
 // 💡 【重要】あなたのFirebaseコンソールからコピーしたConfigをここに貼り付けてください！
 // Import the functions you need from the SDKs you need
@@ -24,27 +24,33 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
+provider.setCustomParameters({ prompt: 'select_account' });
 
 let currentUserToken = null; // ログインした生徒の証明書を保存する変数
 
 // 💡 囲みを外して、直接ボタンに機能を登録します（type="module"なのでこれでも安全に動きます）
 document.getElementById("login-btn").addEventListener("click", login);
 document.getElementById("submit-btn").addEventListener("click", createSuggestion);
+document.getElementById("logout-btn").addEventListener("click", logout);
+
 
 // 生徒のログイン状態を監視する
 onAuthStateChanged(auth, async (user) => {
     const loginBtn = document.getElementById("login-btn");
     const userInfo = document.getElementById("user-info");
+const logoutBtn = document.getElementById("logout-btn"); 
 
     if (user) {
         currentUserToken = await user.getIdToken();
         loginBtn.style.display = "none";
         userInfo.style.display = "inline";
         userInfo.innerText = `ログイン中: ${user.displayName}さん`;
+        logoutBtn.style.display = "inline";
     } else {
         currentUserToken = null;
         loginBtn.style.display = "inline";
         userInfo.style.display = "none";
+        logoutBtn.style.display = "none";
     }
     fetchSuggestions();
 });
@@ -56,6 +62,16 @@ async function login() {
     } catch (error) {
         console.error("ログインエラー:", error);
         alert("Googleログインに失敗しました。");
+    }
+}
+
+async function logout() {
+    try {
+        await signOut(auth);
+        alert("ログアウトしました。");
+    } catch (error) {
+        console.error("ログアウトエラー:", error);
+        alert("ログアウトに失敗しました。");
     }
 }
 
