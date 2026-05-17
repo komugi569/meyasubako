@@ -18,7 +18,7 @@ const firebaseConfig = {
   appId: "1:368665628904:web:68313348fb56c23b01795d",
   measurementId: "G-Y57PT610HG"
 };
-　
+
 
 // Firebaseの初期化
 const app = initializeApp(firebaseConfig);
