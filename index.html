@@ -32,20 +32,20 @@
 
 
     <main>
-        <section class="post-section">
-            <h2>新しい意見を投稿する</h2>
-            <textarea id="suggestion-input" placeholder="学校を良くするための意見を書いてね！" rows="4"></textarea>
-            <button id="submit-btn">投稿する</button>
-        </section>
+        <div class="tab-buttons" style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;">
+    <button onclick="switchTab('post')" style="padding: 10px 20px; cursor: pointer;">📝 投稿する</button>
+    <button onclick="switchTab('popular')" style="padding: 10px 20px; cursor: pointer;">🔥 人気順</button>
+    <button onclick="switchTab('new')" style="padding: 10px 20px; cursor: pointer;">✨ 新着順</button>
+</div>
 
-        <section class="ranking-section">
-            <h2>現在のランキング 🏆</h2>
-            <ul id="suggestion-list">
-                
-             
+<div id="post-section">
+    <textarea id="suggestion-input" placeholder="学校を良くする意見を書いてね..." style="width: 100%; height: 100px; margin-bottom: 10px;"></textarea>
+    <button id="submit-btn" onclick="createSuggestion()" style="padding: 10px; width: 100%;">投稿する</button>
+</div>
 
-            </ul>
-        </section>
+<div id="list-section" style="display: none;">
+    <ul id="suggestion-list" style="list-style-type: none; padding: 0;"></ul>
+</div>
     </main>
     <script type="module" src="app.js"></script>
 </body>

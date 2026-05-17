@@ -70,72 +70,69 @@ async function logout() {
 // --- 1. 意見一覧を取得して画面に表示する（合流版） ---
 async function fetchSuggestions() {
     try {
-        // ① 自作アプリのAPI（Firestore）からデータを取得
-        const response = await fetch("/api/suggestions");
-        let suggestions = await response.json();
+        // ① Pythonバックエンド（Firestore）からデータを取得
+        const res = await fetch("/api/suggestions");
+        const suggestions = await res.json();
 
         // ② Googleフォーム（GAS）からデータを取得
-        let formSuggestions = [];
-        if (GAS_URL && !GAS_URL.includes("XXXXX")) {
-            try {
-                const formResponse = await fetch(GAS_URL);
-                const formData = await formResponse.json();
-                
-                // GASのデータ（content）を、アプリの形式（text）に変換して揃える
-                formSuggestions = formData.map((item, idx) => ({
-                    id: `form-${idx}`, // フォーム用のダミーID
-                    text: item.content, 
-                    likes: 0,           // フォームからの意見は最初いいね0
-                    isForm: true        // フォームからの意見だとわかる目印
-                }));
-            } catch (e) {
-                console.error("Googleフォームデータの取得に失敗:", e);
-            }
-        }
+        const gasRes = await fetch(GAS_URL);
+        const formData = await gasRes.json();
 
-        // ③ 2つのデータを1つの配列に合体させる！
+        // ③ GASのデータをアプリの形式に合わせる（時間も変換）
+        let formSuggestions = formData.map((item, idx) => ({
+            id: `form-${idx}`,
+            text: item.content,
+            likes: 0, 
+            isForm: true,
+            created_at: item.timestamp ? new Date(item.timestamp).getTime() : 0 
+        }));
+
+        // ④ データを合体！
         let allSuggestions = suggestions.concat(formSuggestions);
 
-        // ④ ランキング形式なので、いいね（likes）が多い順に並び替える
-        allSuggestions.sort((a, b) => b.likes - a.likes);
+        // ⑤ 💡 現在のタブに合わせて並び替える！
+        if (currentTab === "popular") {
+            allSuggestions.sort((a, b) => b.likes - a.likes); // いいねが多い順
+        } else if (currentTab === "new") {
+            allSuggestions.sort((a, b) => b.created_at - a.created_at); // 時間が新しい順
+        }
 
+        // ⑥ 画面に出力する
         const listElement = document.getElementById("suggestion-list");
-        listElement.innerHTML = "";
+        if (!listElement) return; // エラー防止
+        listElement.innerHTML = ""; // 一旦リストをリセットして空にする
 
-        // ⑤ 画面に出力する
         allSuggestions.forEach((item, index) => {
             const rank = index + 1;
             const card = document.createElement("li");
             card.className = "suggestion-card";
             
-            // 💡 フォームからの意見の場合、いいねボタンを隠してバッジを出す
-            const actionsHtml = item.isForm 
-                ? `<span style="color: #888; font-size: 0.9em;">📋 フォームからの意見</span>`
-                : `
-                    <button class="like-btn" id="like-${item.id}">❤️ いいね</button>
-                    <span class="like-count">${item.likes}</span>
-                `;
+            // 💡 フォームの意見であることが分かるように小さな文字を添える（ボタンは隠さない！）
+            let badgeHtml = item.isForm 
+                ? `<div style="color: #888; font-size: 0.8em; margin-bottom: 5px;">📋 フォームからの意見</div>` 
+                : "";
 
             card.innerHTML = `
                 <div class="rank-badge rank-${rank <= 3 ? rank : 'other'}">${rank}</div>
                 <div class="content">
                     <p class="text">${escapeHtml(item.text)}</p>
+                    ${badgeHtml}
                     <div class="actions">
-                        ${actionsHtml}
+                        <button class="like-btn" id="like-${item.id}">❤️ いいね</button>
+                        <span class="like-count">${item.likes}</span>
                     </div>
                 </div>
             `;
             listElement.appendChild(card);
 
-            // 自作アプリの意見にだけ、いいねボタンのイベントを設定する
-            if (!item.isForm) {
-                document.getElementById(`like-${item.id}`).addEventListener("click", () => likeSuggestion(item.id));
-            }
+            // 💡 すべての意見（自作アプリもフォームも）にいいねを押せるようにイベントを紐付ける
+            document.getElementById(`like-${item.id}`).addEventListener("click", () => likeSuggestion(item.id));
         });
     } catch (error) {
         console.error("エラー:", error);
     }
 }
+
 
 // --- 2. 新しい意見を投稿する（要ログイン・連打防止付き） ---
 async function createSuggestion() {
@@ -151,7 +148,7 @@ async function createSuggestion() {
 
     // 🛡️ ボタンを無効化して連打を防ぐ
     submitBtn.disabled = true;
-    submitBtn.innerText = "送信中...(AI確認中)";
+    submitBtn.innerText = "送信中...";
 
     try {
         const response = await fetch("/api/suggestions", {
@@ -201,6 +198,26 @@ async function likeSuggestion(id) {
         fetchSuggestions();
     } catch (error) {
         console.error(error);
+    }
+}
+
+// --- タブ切り替え機能 ---
+let currentTab = "post"; // 今開いているタブを記憶する変数
+
+function switchTab(tabName) {
+    currentTab = tabName;
+    
+    // 一旦両方のエリアを隠す
+    document.getElementById("post-section").style.display = "none";
+    document.getElementById("list-section").style.display = "none";
+
+    if (tabName === "post") {
+        // 「投稿する」が選ばれたら投稿画面だけ見せる
+        document.getElementById("post-section").style.display = "block";
+    } else {
+        // 「人気順」「新着順」が選ばれたらリスト画面を見せて、データを取得する
+        document.getElementById("list-section").style.display = "block";
+        fetchSuggestions();
     }
 }
 
