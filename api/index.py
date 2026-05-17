@@ -5,14 +5,18 @@ from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 
-# 💡 最新のGeminiライブラリをインポート
-from google import genai
+# 💡 安定版のGeminiライブラリに戻します
+import google.generativeai as genai
 
 app = FastAPI()
 
 # =================================================================
-# 🤖 1. Gemini AI フィルタリング機能（最新 SDK 対応版）
+# 🤖 1. Gemini AI フィルタリング機能（安定版）
 # =================================================================
+# Vercel上の環境変数に「GEMINI_API_KEY」があればAIを初期化
+if "GEMINI_API_KEY" in os.environ:
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+
 def is_safe_with_ai(text: str) -> bool:
     """投稿内容が適切かどうかをAI（Gemini）に判定させる関数"""
     if "GEMINI_API_KEY" not in os.environ:
@@ -20,7 +24,9 @@ def is_safe_with_ai(text: str) -> bool:
         return True
 
     try:
-        client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+        # 💡 404エラー対策！確実に動く最新モデル名に変更しました
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        
         prompt = f"""
         あなたは学校の目安箱の優秀なモデレーターです。
         以下の投稿内容が「学校の目安箱として適切か」を判定し、「OK」または「NG」の2文字だけで答えてください。
@@ -34,10 +40,7 @@ def is_safe_with_ai(text: str) -> bool:
         {text}
         """
         
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
         return "OK" in response.text.strip()
         
     except Exception as e:
@@ -102,7 +105,7 @@ def get_suggestions():
             data = doc.to_dict()
             liked_by = data.get("liked_by", [])
             
-            # 💡 【追加】JavaScriptが並び替えやすいように、時間を「ミリ秒」に変換
+            # JavaScriptが並び替えやすいように、時間を「ミリ秒」に変換
             created_at = data.get("created_at")
             timestamp = created_at.timestamp() * 1000 if created_at else 0
             
@@ -136,7 +139,7 @@ def create_suggestion(data: SuggestionInput, user: dict = Depends(get_current_us
             "text": text,
             "user_id": user["uid"],
             "liked_by": [],
-            "created_at": firestore.SERVER_TIMESTAMP # 💡【追加】投稿された時間を記録！
+            "created_at": firestore.SERVER_TIMESTAMP # 投稿された時間を記録！
         })
         return {"status": "success", "id": new_doc_ref.id}
     except Exception as e:
@@ -151,7 +154,7 @@ def like_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
     doc = doc_ref.get()
     
     if not doc.exists:
-        # 💡 【追加】もしGoogleフォームの意見（form-XXX）に初めていいねが押されたら、
+        # もしGoogleフォームの意見（form-XXX）に初めていいねが押されたら、
         # Firestore内に「いいねの数だけを数える専用の箱」を自動で作る！
         if suggestion_id.startswith("form-"):
             doc_ref.set({
@@ -163,7 +166,6 @@ def like_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
         else:
             raise HTTPException(status_code=404, detail="意見が見つかりません")
         
-    # すでに箱が存在する場合は、いいねの追加/解除を行う
     data = doc.to_dict()
     liked_by = data.get("liked_by", [])
     
