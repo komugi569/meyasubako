@@ -28,6 +28,7 @@ const KAIRU_NORMAL_TEXT = "何かお困りのことはありますか？";
 const KAIRU_REPLY_TEXT = "知りません";
 
 document.getElementById("login-btn").addEventListener("click", login);
+document.getElementById("submit-btn").addEventListener("click", createSuggestion); // 💡 これを追加！
 document.getElementById("logout-btn").addEventListener("click", logout);
 document.getElementById("suggestion-input").addEventListener("input", () => setKairuImage(false));
 document.querySelectorAll("[data-tab]").forEach((button) => {
