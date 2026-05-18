@@ -22,9 +22,29 @@ provider.setCustomParameters({ prompt: 'select_account' });
 let currentUserToken = null;
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxZztgHvkKfaH3WPkWEH8f9KoiBSAFNrbPFgKkbAbLnyy_-VNjhBHSfIJ04DGJraM0T/exec"; 
+const KAIRU_NORMAL_IMAGE = "kairu.png";
+const KAIRU_REPLY_IMAGE = "kairu_excel.png";
+const KAIRU_NORMAL_TEXT = "何かお困りのことはありますか？";
+const KAIRU_REPLY_TEXT = "知りません";
 
 document.getElementById("login-btn").addEventListener("click", login);
 document.getElementById("logout-btn").addEventListener("click", logout);
+document.getElementById("suggestion-input").addEventListener("input", () => setKairuImage(false));
+document.querySelectorAll("[data-tab]").forEach((button) => {
+    button.addEventListener("click", () => switchTab(button.dataset.tab));
+});
+
+function setKairuImage(isReply) {
+    const kairuImage = document.getElementById("kairu-image");
+    const kairuTextbox = document.getElementById("kairu-textbox");
+
+    if (kairuImage) {
+        kairuImage.src = isReply ? KAIRU_REPLY_IMAGE : KAIRU_NORMAL_IMAGE;
+    }
+    if (kairuTextbox) {
+        kairuTextbox.innerText = isReply ? KAIRU_REPLY_TEXT : KAIRU_NORMAL_TEXT;
+    }
+}
 
 // 生徒のログイン状態を監視する
 onAuthStateChanged(auth, async (user) => {
@@ -166,6 +186,7 @@ async function createSuggestion() {
         }
 
         inputElement.value = "";
+        setKairuImage(true);
         fetchSuggestions();
     } catch (error) {
         alert(error.message); // 💡 AIからの警告やエラーをそのまま画面に出す
@@ -223,7 +244,3 @@ function switchTab(tabName) {
 function escapeHtml(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-
-// 💡 HTMLの onclick から関数を呼び出せるように、外の世界に公開します！
-window.switchTab = switchTab;
-window.createSuggestion = createSuggestion;
