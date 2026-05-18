@@ -24,7 +24,6 @@ let currentUserToken = null;
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxZztgHvkKfaH3WPkWEH8f9KoiBSAFNrbPFgKkbAbLnyy_-VNjhBHSfIJ04DGJraM0T/exec"; 
 
 document.getElementById("login-btn").addEventListener("click", login);
-document.getElementById("submit-btn").addEventListener("click", createSuggestion);
 document.getElementById("logout-btn").addEventListener("click", logout);
 
 // 生徒のログイン状態を監視する
@@ -224,3 +223,7 @@ function switchTab(tabName) {
 function escapeHtml(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+
+// 💡 HTMLの onclick から関数を呼び出せるように、外の世界に公開します！
+window.switchTab = switchTab;
+window.createSuggestion = createSuggestion;
