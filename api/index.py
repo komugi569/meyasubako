@@ -11,20 +11,25 @@ from firebase_admin import credentials, firestore, auth
 app = FastAPI()
 
 # =================================================================
-# 🤖 1. Gemini AI フィルタリング（完全復活・防衛ブロック版）
+# 🤖 1. Groq AI フィルタリング（Geminiから乗り換え版）
 # =================================================================
 def is_safe_with_ai(text: str) -> bool:
-    """投稿内容が適切かどうかをAI（Gemini）に判定させる関数"""
+    """投稿内容が適切かどうかを別のAI（Groq / Llama 3）に判定させる関数"""
     
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    # 💡 Vercelの環境変数名を「GROQ_API_KEY」に変更します
+    api_key = os.environ.get("GROQ_API_KEY", "").strip()
     
     if not api_key:
-        print("警告: GEMINI_API_KEY が未設定のため、AIチェックをスキップします。")
+        print("警告: GROQ_API_KEY が未設定のため、AIチェックをスキップします。")
         return True
 
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-        headers = {'Content-Type': 'application/json'}
+        # 💡 GroqのAPI（超高速なAI）を呼び出します
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}'
+        }
         
         prompt = f"""
         あなたは学校の目安箱の優秀なモデレーターです。
@@ -39,15 +44,19 @@ def is_safe_with_ai(text: str) -> bool:
         {text}
         """
         
+        # 💡 世界トップクラスに速い無料モデル「llama3-8b-8192」を使用します
         payload = {
-            "contents": [{"parts": [{"text": prompt}]}]
+            "model": "llama3-8b-8192",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1
         }
         
         req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
         
         with urllib.request.urlopen(req) as response:
             result_data = json.loads(response.read().decode('utf-8'))
-            ai_reply = result_data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+            ai_reply = result_data.get('choices', [{}])[0].get('message', {}).get('content', '')
+            print(f"AIの判定結果: {ai_reply}") # ログ確認用
             
         return "OK" in ai_reply
         
@@ -55,11 +64,8 @@ def is_safe_with_ai(text: str) -> bool:
         error_body = e.read().decode('utf-8')
         print(f"AI通信エラー詳細: {e.code} - {error_body}")
         
-        # 🛡️ 429（連打や制限）の場合はブロック
         if e.code == 429:
             raise HTTPException(status_code=429, detail="現在アクセスが集中しています。10秒ほど待ってから再度お試しください。")
-            
-        # 🛡️ その他のエラーでAIがダウンしている場合も安全のためにブロック
         raise HTTPException(status_code=500, detail="AIフィルターが一時的に応答していません。時間をおいてお試しください。")
         
     except Exception as e:
