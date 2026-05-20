@@ -150,23 +150,39 @@ def like_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
 class DeleteRequest(BaseModel):
     doc_id: str
     password: str
-
 # =================================================================
-# 🗑️ 投稿削除API（管理者専用）
+# 🗑️ 投稿削除API（通常意見は物理削除、フォーム意見は非表示リスト登録）
 # =================================================================
 @app.post("/api/delete")
 def delete_suggestion(req: DeleteRequest):
-    # Vercelの環境変数から管理者パスワードを取得
     admin_pass = os.environ.get("ADMIN_PASSWORD", "")
-    
-    # パスワードが設定されていない、または間違っている場合はエラーで弾く
     if not admin_pass or req.password != admin_pass:
         raise HTTPException(status_code=403, detail="パスワードが違います")
         
     try:
-        # Firestoreから指定されたIDの投稿を削除
-        db.collection("suggestions").document(req.doc_id).delete()
-        return {"status": "success", "message": "削除しました"}
+        # 💡 IDが「form-」で始まる場合は、非表示リスト用のコレクションに保存する
+        if req.doc_id.startswith("form-"):
+            db.collection("deleted_forms").document(req.doc_id).set({
+                "deleted_at": firestore.SERVER_TIMESTAMP
+            })
+        else:
+            # 通常の意見は今まで通りFirestoreから物理削除
+            db.collection("suggestions").document(req.doc_id).delete()
+            
+        return {"status": "success", "message": "削除処理が完了しました"}
     except Exception as e:
         print(f"削除エラー: {e}")
-        raise HTTPException(status_code=500, detail="システムエラーで削除できませんでした")
+        raise HTTPException(status_code=500, detail="削除に失敗しました")
+
+# =================================================================
+# 📋 非表示（削除済み）フォーム意見のIDリストを取得するAPI（新規追加）
+# =================================================================
+@app.get("/api/deleted_forms")
+def get_deleted_forms():
+    try:
+        # deleted_forms コレクションにあるドキュメントのID（form-xxxx）をすべて集めて返す
+        docs = db.collection("deleted_forms").stream()
+        return [doc.id for doc in docs]
+    except Exception as e:
+        print(f"リスト取得エラー: {e}")
+        return []

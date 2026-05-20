@@ -165,28 +165,40 @@ async function createSuggestion() {
     }
 }
 window.submitSuggestion = createSuggestion; // 💡 HTML側の submitSuggestion() と名前を合わせる
-
 // ==========================================
-// 📦 6. データの取得と結合（Firestore + GAS）
+// 📦 6. データの取得と結合（Firestore + GAS + 非表示フィルター）
 // ==========================================
 async function fetchAllPosts() {
     try {
+        // ① Pythonから通常の意見を取得
         const res = await fetch("/api/suggestions");
         const suggestions = await res.json();
 
+        // ② GASからフォームの意見を取得
         const gasRes = await fetch(GAS_URL);
         const formData = await gasRes.json();
 
-        const formSuggestions = formData.map((item, idx) => ({
-            id: `form-${idx}`,
-            text: item.content,
-            likes: 0, 
-            isForm: true,
-            created_at: item.timestamp ? new Date(item.timestamp).getTime() : 0 
-        }));
+        // ③ 💡 Pythonから非表示（削除済み）にされたフォーム意見のIDリストを取得
+        const delRes = await fetch("/api/deleted_forms");
+        const deletedFormIds = await delRes.json();
 
-        // アプリのデータとフォームのデータを合体
-        allPosts = suggestions.concat(formSuggestions);
+        // ④ フォームデータを整形（💡 IDをタイムスタンプ基準にして絶対にズレないように安定化！）
+        const formSuggestions = formData.map((item, idx) => {
+            const timeId = item.timestamp ? new Date(item.timestamp).getTime() : idx;
+            return {
+                id: `form-${timeId}`,
+                text: item.content,
+                likes: 0, 
+                isForm: true,
+                created_at: item.timestamp ? new Date(item.timestamp).getTime() : 0 
+            };
+        });
+
+        // ⑤ 通常の意見とフォームの意見を合体
+        let combined = suggestions.concat(formSuggestions);
+        
+        // ⑥ 💡 フィルターをかけて、非表示リストに入っているIDの投稿を除外（間引く）する！
+        allPosts = combined.filter(post => !deletedFormIds.includes(post.id));
         
         // 画面に描画
         renderDashboard();
@@ -194,7 +206,6 @@ async function fetchAllPosts() {
         console.error("データ取得エラー:", error);
     }
 }
-
 // ==========================================
 // 🎨 7. ダッシュボードの描画（3ジャンル）
 // ==========================================
@@ -204,9 +215,9 @@ function renderDashboard() {
     
     // ✨ 新着順（時間降順）
     const newest = [...allPosts].sort((a, b) => b.created_at - a.created_at);
-    
-    // 🔥 話題順（ランダム）※運用に応じて後でアルゴリズムを変更可能
-    const trending = [...allPosts].sort(() => Math.random() - 0.5);
+
+    // 🔥 話題順（現在は人気順と同じ「いいね数降順」）
+    const trending = [...allPosts].sort((a, b) => b.likes - a.likes);
 
     renderPostCards(popular.slice(0, 3), 'popular-top3');
     renderPostCards(newest.slice(0, 3), 'newest-top3');
@@ -222,8 +233,7 @@ window.showCategoryDetail = function(category, titleText) {
     let targetPosts = [];
     if (category === 'popular') targetPosts = [...allPosts].sort((a, b) => b.likes - a.likes);
     if (category === 'newest')  targetPosts = [...allPosts].sort((a, b) => b.created_at - a.created_at);
-    if (category === 'trending') targetPosts = [...allPosts].sort(() => Math.random() - 0.5);
-
+   if (category === 'trending') targetPosts = [...allPosts].sort((a, b) => b.likes - a.likes);
     renderPostCards(targetPosts, 'detail-list');
 }
 
