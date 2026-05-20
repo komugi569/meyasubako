@@ -212,13 +212,10 @@ async function loadAllPosts() {
     setDashboardStatus("読み込み中です。");
 
     try {
-        const [feed, formData] = await Promise.all([
-            fetchJson("/api/feed", "投稿一覧を取得できませんでした"),
-            fetchJson(GAS_URL, "フォームの意見を取得できませんでした")
-        ]);
+        const gasRequest = fetchJson(GAS_URL, "フォームの意見を取得できませんでした");
+        const feed = await fetchJson("/api/feed", "投稿一覧を取得できませんでした");
 
         const suggestionList = Array.isArray(feed.suggestions) ? feed.suggestions : [];
-        const formList = Array.isArray(formData) ? formData : [];
         const deletedIds = Array.isArray(feed.deleted_form_ids) ? feed.deleted_form_ids : [];
         const formLikeMap = new Map(
             suggestionList
@@ -226,6 +223,21 @@ async function loadAllPosts() {
                 .map(post => [post.id, post.likes || 0])
         );
         const normalSuggestions = suggestionList.filter(post => !post.is_form_dummy);
+
+        allPosts = normalSuggestions.filter(post => !deletedIds.includes(post.id));
+        renderDashboard();
+        setDashboardStatus(allPosts.length ? `${allPosts.length}件の意見を表示しています。フォーム投稿を確認中です。` : "フォーム投稿を確認中です。");
+
+        let formData = [];
+        try {
+            formData = await gasRequest;
+        } catch (error) {
+            console.warn("フォーム意見の取得に失敗しました:", error);
+            setDashboardStatus(allPosts.length ? `${allPosts.length}件の意見を表示しています。フォーム投稿は後で再読み込みしてください。` : "フォーム投稿を読み込めませんでした。");
+            return;
+        }
+
+        const formList = Array.isArray(formData) ? formData : [];
 
         // ④ フォームデータを整形（💡 IDをタイムスタンプ基準にして絶対にズレないように安定化！）
         const formSuggestions = formList.map((item, idx) => {
@@ -241,7 +253,7 @@ async function loadAllPosts() {
         });
 
         // ⑤ 通常の意見とフォームの意見を合体
-        let combined = normalSuggestions.concat(formSuggestions);
+        const combined = normalSuggestions.concat(formSuggestions);
         
         // ⑥ 💡 フィルターをかけて、非表示リストに入っているIDの投稿を除外（間引く）する！
         allPosts = combined.filter(post => !deletedIds.includes(post.id));
