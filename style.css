@@ -1,41 +1,355 @@
-/* 全体の設定（背景色やフォント） */
+:root {
+    --page: #f5f7f8;
+    --surface: #ffffff;
+    --surface-soft: #eef6f4;
+    --text: #1e2a32;
+    --muted: #66737c;
+    --line: #dbe3e6;
+    --primary: #147c72;
+    --primary-dark: #0f5f58;
+    --accent: #d66b3d;
+    --danger: #c94343;
+    --shadow: 0 10px 28px rgba(27, 42, 47, 0.08);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+[hidden] {
+    display: none !important;
+}
+
 body {
-    font-family: 'Helvetica Neue', Arial, 'Hiragino Sans', Meiryo, sans-serif;
-    background-color: #f4f7f6;
-    color: #333;
+    min-height: 100vh;
     margin: 0;
-    padding: 0;
+    background:
+        linear-gradient(180deg, #eaf3f1 0, rgba(245, 247, 248, 0) 280px),
+        var(--page);
+    color: var(--text);
+    font-family: "Helvetica Neue", Arial, "Hiragino Sans", Meiryo, sans-serif;
 }
 
-/* ヘッダー（上のタイトル部分） */
-header {
-    background-color: #4CAF50; /* 生徒会らしいクリーンな緑色 */
-    color: white;
-    text-align: center;
-    padding: 15px 0;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+button,
+textarea {
+    font: inherit;
 }
 
-header h1 {
+button {
+    min-height: 44px;
+}
+
+.site-header {
+    background: rgba(255, 255, 255, 0.92);
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    backdrop-filter: blur(14px);
+}
+
+.header-inner {
+    width: min(1040px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 18px 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.brand-kicker,
+.section-label {
+    margin: 0 0 4px;
+    color: var(--primary);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.brand h1 {
     margin: 0;
-    font-size: 1.5rem;
+    font-size: 1.75rem;
+    line-height: 1.1;
 }
 
-/* メインコンテンツの枠組み（スマホ幅に合わせる） */
-main {
-    max-width: 600px;
-    margin: 20px auto;
-    padding: 0 15px;
+.auth-panel {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    min-width: 220px;
+}
+
+.user-info {
+    max-width: 260px;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 0.9rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ghost-btn,
+.primary-btn,
+.more-btn,
+.back-btn,
+.like-btn {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 700;
+    transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.ghost-btn {
+    background: #ffffff;
+    border-color: var(--line);
+    color: var(--text);
+    padding: 9px 14px;
+}
+
+.ghost-link {
+    min-height: 44px;
+    padding: 9px 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.ghost-btn:hover,
+.ghost-link:hover,
+.more-btn:hover,
+.back-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary-dark);
+}
+
+.container {
+    width: min(1040px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 28px 0 96px;
+}
+
+.page-section {
+    animation: fade-in 0.18s ease;
+}
+
+.panel,
+.category-section {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+}
+
+.post-panel {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.dashboard-section {
+    margin-top: 34px;
+}
+
+.section-heading {
+    margin-bottom: 18px;
+}
+
+.section-heading h2,
+.section-title {
+    margin: 0;
+    font-size: 1.35rem;
+    line-height: 1.25;
+}
+
+.dashboard-heading {
+    margin-bottom: 10px;
+}
+
+.input-label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text);
+    font-weight: 700;
+}
+
+textarea {
+    display: block;
+    width: 100%;
+    min-height: 180px;
+    padding: 14px;
+    resize: vertical;
+    background: #fbfcfc;
+    border: 1px solid #c8d3d7;
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 1rem;
+    line-height: 1.65;
+}
+
+textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(20, 124, 114, 0.16);
+    outline: none;
+}
+
+.helper-text,
+.status-text,
+.empty-message {
+    color: var(--muted);
+    font-size: 0.93rem;
+    line-height: 1.6;
+}
+
+.helper-text {
+    margin: 10px 0 14px;
+}
+
+.helper-text.is-ready {
+    color: var(--primary-dark);
+    font-weight: 700;
+}
+
+.primary-btn {
+    width: 100%;
+    background: var(--primary);
+    color: #ffffff;
+    padding: 12px 18px;
+}
+
+.primary-btn:hover {
+    background: var(--primary-dark);
+}
+
+.primary-btn:disabled,
+.like-btn:disabled {
+    cursor: progress;
+    opacity: 0.68;
+}
+
+.category-section {
+    margin-top: 18px;
+    padding: 18px;
+}
+
+.category-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.more-btn,
+.back-btn {
+    background: #ffffff;
+    border-color: var(--line);
+    color: var(--text);
+    padding: 9px 14px;
+    white-space: nowrap;
+}
+
+.post-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.vertical-list {
+    display: grid;
+    gap: 12px;
+}
+
+.post-card {
+    min-width: 0;
+    min-height: 164px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+
+.post-source {
+    width: fit-content;
+    max-width: 100%;
+    padding: 4px 8px;
+    background: var(--surface-soft);
+    border-radius: 999px;
+    color: var(--primary-dark);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.post-text {
+    flex: 1;
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: var(--text);
+    font-size: 0.97rem;
+    line-height: 1.65;
+}
+
+.post-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.like-btn {
+    min-height: 38px;
+    padding: 7px 12px;
+    background: #fff4ef;
+    border-color: #f0c7b6;
+    color: #9f3f22;
+}
+
+.like-btn:hover {
+    background: #ffe8dd;
+    border-color: var(--accent);
+}
+
+.empty-message {
+    margin: 0;
+    padding: 18px;
+    background: #fbfcfc;
+    border: 1px dashed #c8d3d7;
+    border-radius: 8px;
+}
+
+.post-grid .empty-message {
+    grid-column: 1 / -1;
+}
+
+.back-btn {
+    margin-bottom: 16px;
 }
 
 .kairu-assistant {
     position: fixed;
-    top: 0;
-    right: 0;
-    z-index: 9999;
-    width: min(360px, 58vw);
+    right: 18px;
+    bottom: 18px;
+    z-index: 10;
+    width: min(220px, 32vw);
     pointer-events: none;
     text-align: right;
+    transition: bottom 0.2s ease;
+}
+
+.kairu-assistant.is-above-footer {
+    bottom: 104px;
 }
 
 #kairu-image {
@@ -46,133 +360,168 @@ main {
 }
 
 .kairu-textbox {
-    box-sizing: border-box;
-    width: min(340px, 54vw);
-    margin: 8px 8px 0 auto;
-    padding: 12px 14px;
-    background-color: #fff8cc;
-    border: 2px solid #777;
-    box-shadow: 3px 3px 0 #333;
-    color: #111;
+    width: min(210px, 30vw);
+    margin: 0 0 8px auto;
+    padding: 10px 12px;
+    background: #fff8cc;
+    border: 2px solid #6f6b53;
+    border-radius: 8px;
+    box-shadow: 3px 3px 0 rgba(30, 42, 50, 0.24);
+    color: #1e2a32;
     font-family: "MS PGothic", "MS Gothic", Meiryo, sans-serif;
-    font-size: clamp(14px, 2.4vw, 22px);
-    font-weight: bold;
-    line-height: 1.35;
+    font-size: 0.92rem;
+    font-weight: 700;
+    line-height: 1.45;
     text-align: left;
 }
 
-/* 白いカード型の背景設定 */
-.post-section, .suggestion-card {
-    background-color: white;
-    padding: 20px;
-    border-radius: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    margin-bottom: 20px;
+.site-footer {
+    border-top: 1px solid var(--line);
+    background: #ffffff;
 }
 
-/* 見出しのデザイン */
-h2 {
-    font-size: 1.2rem;
-    margin-top: 0;
-    border-bottom: 2px solid #4CAF50;
-    padding-bottom: 5px;
-    display: inline-block;
-}
-
-/* 入力ボックス（テキストエリア） */
-textarea {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    box-sizing: border-box;
-    font-size: 1rem;
-    resize: vertical;
-    margin-bottom: 10px;
-}
-
-/* 投稿ボタン */
-button#submit-btn {
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    padding: 12px;
-    border-radius: 5px;
-    font-size: 1rem;
-    cursor: pointer;
-    width: 100%;
-    font-weight: bold;
-}
-
-button#submit-btn:hover {
-    background-color: #45a049;
-}
-
-/* 意見リストの・を消す */
-ul#suggestion-list {
-    list-style-type: none;
-    padding: 0;
-}
-
-/* 各意見のカード（横並び設定） */
-.suggestion-card {
-    display: flex;
-    align-items: flex-start;
-}
-
-/* 順位バッジ */
-.rank-badge {
-    width: 30px;
-    height: 30px;
-    background-color: #ccc;
-    color: white;
-    border-radius: 50%;
+.footer-inner {
+    width: min(1040px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 22px 0;
     display: flex;
     align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    margin-right: 15px;
-    flex-shrink: 0;
-}
-
-/* 1位〜3位の色分け */
-.rank-1 { background-color: #FFD700; } /* 金 */
-.rank-2 { background-color: #C0C0C0; } /* 銀 */
-.rank-3 { background-color: #CD7F32; } /* 銅 */
-
-/* 意見の中身 */
-.content {
-    flex-grow: 1;
-}
-
-.text {
-    margin: 0 0 10px 0;
-    line-height: 1.5;
-}
-
-/* いいねボタン周り */
-.actions {
-    display: flex;
-    align-items: center;
-}
-
-.like-btn {
-    background-color: #ffeeee;
-    color: #ff4d4d;
-    border: 1px solid #ffcccc;
-    padding: 6px 12px;
-    border-radius: 20px;
-    cursor: pointer;
+    justify-content: space-between;
+    gap: 16px;
+    color: var(--muted);
     font-size: 0.9rem;
-    margin-right: 10px;
-    transition: 0.2s;
 }
 
-.like-btn:hover {
-    background-color: #ffcccc;
+.footer-inner p {
+    margin: 0;
 }
 
-.like-count {
-    font-weight: bold;
-    color: #555;
+.footer-inner p:first-child {
+    color: var(--text);
+    font-weight: 700;
+}
+
+.footer-links {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 14px;
+    text-align: right;
+}
+
+.footer-links a {
+    color: var(--primary-dark);
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.footer-links a:hover {
+    text-decoration: underline;
+}
+
+.terms-container {
+    min-height: calc(100vh - 178px);
+}
+
+.terms-panel {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.terms-panel p {
+    color: var(--muted);
+    line-height: 1.75;
+}
+
+.terms-panel h3 {
+    margin: 24px 0 8px;
+    font-size: 1.05rem;
+}
+
+@keyframes fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 780px) {
+    .header-inner {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .auth-panel {
+        width: 100%;
+        min-width: 0;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .user-info {
+        max-width: 100%;
+        flex-basis: 100%;
+    }
+
+    .post-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .post-panel,
+    .category-section {
+        padding: 18px;
+    }
+
+    .kairu-assistant {
+        position: static;
+        width: min(220px, 70vw);
+        margin: 0 16px 20px auto;
+    }
+
+    .kairu-assistant.is-above-footer {
+        bottom: auto;
+    }
+
+    .kairu-textbox {
+        width: min(220px, 70vw);
+    }
+}
+
+@media (max-width: 480px) {
+    .header-inner,
+    .container,
+    .footer-inner {
+        width: min(100% - 24px, 1040px);
+    }
+
+    .brand h1 {
+        font-size: 1.5rem;
+    }
+
+    .category-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .more-btn,
+    .back-btn {
+        width: 100%;
+    }
+
+    .footer-inner {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .footer-links {
+        align-items: flex-start;
+        flex-direction: column;
+        text-align: left;
+    }
 }

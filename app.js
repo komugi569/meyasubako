@@ -22,6 +22,7 @@ provider.setCustomParameters({ prompt: 'select_account' });
 
 let currentUserToken = null;
 let allPosts = []; // すべての投稿データを一時保存する箱
+let isLoadingPosts = false;
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxZztgHvkKfaH3WPkWEH8f9KoiBSAFNrbPFgKkbAbLnyy_-VNjhBHSfIJ04DGJraM0T/exec"; 
 const KAIRU_NORMAL_IMAGE = "kairu.png";
@@ -45,6 +46,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if(suggestionInput) {
         suggestionInput.addEventListener("input", () => setKairuImage(false));
     }
+
+    updatePostHelper();
+    initKairuFooterAvoidance();
 });
 
 function setKairuImage(isReply) {
@@ -52,6 +56,20 @@ function setKairuImage(isReply) {
     const kairuTextbox = document.getElementById("kairu-textbox");
     if (kairuImage) kairuImage.src = isReply ? KAIRU_REPLY_IMAGE : KAIRU_NORMAL_IMAGE;
     if (kairuTextbox) kairuTextbox.innerText = isReply ? KAIRU_REPLY_TEXT : KAIRU_NORMAL_TEXT;
+}
+
+function initKairuFooterAvoidance() {
+    const kairuAssistant = document.querySelector(".kairu-assistant");
+    const footer = document.querySelector(".site-footer");
+
+    if (!kairuAssistant || !footer || !("IntersectionObserver" in window)) return;
+
+    const observer = new IntersectionObserver((entries) => {
+        const isFooterVisible = entries.some(entry => entry.isIntersecting);
+        kairuAssistant.classList.toggle("is-above-footer", isFooterVisible);
+    }, { threshold: 0.01 });
+
+    observer.observe(footer);
 }
 
 // ==========================================
@@ -64,21 +82,41 @@ onAuthStateChanged(auth, async (user) => {
 
     if (user) {
         currentUserToken = await user.getIdToken();
-        if(loginBtn) loginBtn.style.display = "none";
+        if(loginBtn) loginBtn.hidden = true;
         if(userInfo) {
-            userInfo.style.display = "inline";
+            userInfo.hidden = false;
             userInfo.innerText = `ログイン中: ${user.displayName}さん`;
         }
-        if(logoutBtn) logoutBtn.style.display = "inline";
+        if(logoutBtn) logoutBtn.hidden = false;
     } else {
         currentUserToken = null;
-        if(loginBtn) loginBtn.style.display = "inline";
-        if(userInfo) userInfo.style.display = "none";
-        if(logoutBtn) logoutBtn.style.display = "none";
+        if(loginBtn) loginBtn.hidden = false;
+        if(userInfo) {
+            userInfo.hidden = true;
+            userInfo.innerText = "";
+        }
+        if(logoutBtn) logoutBtn.hidden = true;
     }
+    updatePostHelper();
     // ログイン状態が確定したらデータを取得
     fetchAllPosts();
 });
+
+function updatePostHelper() {
+    const helper = document.getElementById("post-helper");
+    const submitBtn = document.getElementById("submit-btn");
+
+    if (helper) {
+        helper.textContent = currentUserToken
+            ? "ログイン済みです。内容を確認して送信できます。"
+            : "投稿にはログインが必要です。";
+        helper.classList.toggle("is-ready", Boolean(currentUserToken));
+    }
+
+    if (submitBtn) {
+        submitBtn.disabled = !currentUserToken;
+    }
+}
 
 async function login() {
     try {
@@ -100,25 +138,17 @@ async function logout() {
 }
 
 // ==========================================
-// 🔄 4. 画面（タブ）切り替え処理
+// 🔄 4. 画面切り替え処理
 // ==========================================
-// ※グローバルから呼び出せるように window に登録
-window.switchTab = function(tabName) {
-    document.getElementById('page-post').style.display = (tabName === 'post') ? 'block' : 'none';
-    document.getElementById('page-view').style.display = (tabName === 'view') ? 'block' : 'none';
-    document.getElementById('page-detail').style.display = 'none';
-
-    document.getElementById('tab-post').classList.toggle('active', tabName === 'post');
-    document.getElementById('tab-view').classList.toggle('active', tabName === 'view');
-
-    if (tabName === 'view') {
-        fetchAllPosts();
-    }
+function showMainView() {
+    document.getElementById('page-post').hidden = false;
+    document.getElementById('page-view').hidden = false;
+    document.getElementById('page-detail').hidden = true;
 }
 
 window.backToDashboard = function() {
-    document.getElementById('page-detail').style.display = 'none';
-    document.getElementById('page-view').style.display = 'block';
+    showMainView();
+    document.getElementById('page-view').scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 // ==========================================
@@ -154,14 +184,14 @@ async function createSuggestion() {
         inputElement.value = "";
         setKairuImage(true);
         alert("投稿しました！");
-        window.switchTab('view'); 
+        await fetchAllPosts();
+        showMainView();
+        document.getElementById('page-view').scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
         alert(error.message);
     } finally {
-        setTimeout(() => {
-            submitBtn.disabled = false;
-            submitBtn.innerText = "送信する";
-        }, 10000); 
+        submitBtn.innerText = "送信する";
+        updatePostHelper();
     }
 }
 window.submitSuggestion = createSuggestion; // 💡 HTML側の submitSuggestion() と名前を合わせる
@@ -169,41 +199,65 @@ window.submitSuggestion = createSuggestion; // 💡 HTML側の submitSuggestion(
 // 📦 6. データの取得と結合（Firestore + GAS + 非表示フィルター）
 // ==========================================
 async function fetchAllPosts() {
+    if (isLoadingPosts) return;
+    isLoadingPosts = true;
+    setDashboardStatus("読み込み中です。");
+
     try {
         // ① Pythonから通常の意見を取得
         const res = await fetch("/api/suggestions");
+        if (!res.ok) throw new Error("投稿一覧を取得できませんでした");
         const suggestions = await res.json();
 
         // ② GASからフォームの意見を取得
         const gasRes = await fetch(GAS_URL);
+        if (!gasRes.ok) throw new Error("フォームの意見を取得できませんでした");
         const formData = await gasRes.json();
 
         // ③ 💡 Pythonから非表示（削除済み）にされたフォーム意見のIDリストを取得
         const delRes = await fetch("/api/deleted_forms");
+        if (!delRes.ok) throw new Error("非表示リストを取得できませんでした");
         const deletedFormIds = await delRes.json();
 
+        const suggestionList = Array.isArray(suggestions) ? suggestions : [];
+        const formList = Array.isArray(formData) ? formData : [];
+        const deletedIds = Array.isArray(deletedFormIds) ? deletedFormIds : [];
+        const formLikeMap = new Map(
+            suggestionList
+                .filter(post => post.is_form_dummy)
+                .map(post => [post.id, post.likes || 0])
+        );
+        const normalSuggestions = suggestionList.filter(post => !post.is_form_dummy);
+
         // ④ フォームデータを整形（💡 IDをタイムスタンプ基準にして絶対にズレないように安定化！）
-        const formSuggestions = formData.map((item, idx) => {
+        const formSuggestions = formList.map((item, idx) => {
             const timeId = item.timestamp ? new Date(item.timestamp).getTime() : idx;
+            const id = `form-${timeId}`;
             return {
-                id: `form-${timeId}`,
+                id: id,
                 text: item.content,
-                likes: 0, 
+                likes: formLikeMap.get(id) || 0,
                 isForm: true,
                 created_at: item.timestamp ? new Date(item.timestamp).getTime() : 0 
             };
         });
 
         // ⑤ 通常の意見とフォームの意見を合体
-        let combined = suggestions.concat(formSuggestions);
+        let combined = normalSuggestions.concat(formSuggestions);
         
         // ⑥ 💡 フィルターをかけて、非表示リストに入っているIDの投稿を除外（間引く）する！
-        allPosts = combined.filter(post => !deletedFormIds.includes(post.id));
+        allPosts = combined.filter(post => !deletedIds.includes(post.id));
         
         // 画面に描画
         renderDashboard();
+        setDashboardStatus(allPosts.length ? `${allPosts.length}件の意見を表示しています。` : "");
     } catch (error) {
         console.error("データ取得エラー:", error);
+        allPosts = [];
+        renderDashboard();
+        setDashboardStatus("意見を読み込めませんでした。時間をおいてもう一度試してください。");
+    } finally {
+        isLoadingPosts = false;
     }
 }
 // ==========================================
@@ -224,10 +278,16 @@ function renderDashboard() {
     renderPostCards(trending.slice(0, 3), 'trending-top3');
 }
 
+function setDashboardStatus(message) {
+    const status = document.getElementById("dashboard-status");
+    if (status) status.textContent = message;
+}
+
 // 🔍 もっと表示する
 window.showCategoryDetail = function(category, titleText) {
-    document.getElementById('page-view').style.display = 'none';
-    document.getElementById('page-detail').style.display = 'block';
+    document.getElementById('page-post').hidden = true;
+    document.getElementById('page-view').hidden = true;
+    document.getElementById('page-detail').hidden = false;
     document.getElementById('detail-title').textContent = titleText;
 
     let targetPosts = [];
@@ -245,20 +305,39 @@ function renderPostCards(posts, containerId) {
     if (!container) return;
     container.innerHTML = ""; 
 
+    if (!posts.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty-message";
+        empty.textContent = "まだ表示できる意見がありません。";
+        container.appendChild(empty);
+        return;
+    }
+
     posts.forEach(post => {
         const card = document.createElement("div");
         card.className = "post-card";
 
-        // フォームからの意見の場合のバッジ
-        let badgeHtml = post.isForm 
-            ? `<div style="color: #7F8C8D; font-size: 0.8em; margin-bottom: 5px; font-weight: bold;">📋 フォームからの意見</div>` 
-            : "";
+        const source = document.createElement("div");
+        source.className = "post-source";
+        source.textContent = post.isForm ? "フォームからの意見" : "アプリからの意見";
 
-        card.innerHTML = `
-            ${badgeHtml}
-            <p style="margin-top: 5px; font-size: 15px; line-height: 1.4;">${escapeHtml(post.text)}</p>
-            <button class="like-btn" onclick="likeSuggestion('${post.id}')">❤️ ${post.likes}</button>
-        `;
+        const text = document.createElement("p");
+        text.className = "post-text";
+        text.textContent = post.text || "内容がありません。";
+
+        const actions = document.createElement("div");
+        actions.className = "post-actions";
+
+        const likeButton = document.createElement("button");
+        likeButton.className = "like-btn";
+        likeButton.type = "button";
+        likeButton.textContent = `いいね ${post.likes || 0}`;
+        likeButton.addEventListener("click", () => likeSuggestion(post.id));
+
+        actions.appendChild(likeButton);
+        card.appendChild(source);
+        card.appendChild(text);
+        card.appendChild(actions);
         container.appendChild(card);
     });
 }
@@ -282,7 +361,7 @@ window.likeSuggestion = async function(id) {
         // 再取得して画面を更新（詳細画面にいる場合は詳細画面をキープ）
         await fetchAllPosts();
         
-        if (document.getElementById('page-detail').style.display === 'block') {
+        if (!document.getElementById('page-detail').hidden) {
             // 現在のタイトルからカテゴリを逆算して再描画
             const title = document.getElementById('detail-title').textContent;
             let cat = 'newest';
@@ -293,10 +372,4 @@ window.likeSuggestion = async function(id) {
     } catch (error) {
         console.error(error);
     }
-}
-
-// ユーティリティ
-function escapeHtml(str) {
-    if (!str) return "";
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
