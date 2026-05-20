@@ -5,13 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>目安箱 - 🛡️管理者ダッシュボード</title>
     <style>
-        /* 管理画面だと分かりやすいように、背景を少し暗い色にします */
         body { font-family: sans-serif; background-color: #2c3e50; color: white; padding: 20px; }
-        .container { max-width: 600px; margin: 0 auto; background: #34495e; padding: 20px; border-radius: 8px; }
+        .container { max-width: 700px; margin: 0 auto; background: #34495e; padding: 20px; border-radius: 8px; }
+        
+        /* 検索・操作バーの装飾 */
+        .control-bar { background: #2c3e50; padding: 15px; margin-bottom: 20px; border-radius: 5px; display: flex; gap: 20px; align-items: center; border: 1px solid #7f8c8d; }
+        .bulk-delete-btn { background: #e67e22; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .bulk-delete-btn:hover { background: #d35400; }
+        
         .post { background: #ecf0f1; color: #333; padding: 15px; margin-bottom: 10px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
-        .delete-btn { background: #e74c3c; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .post-content { display: flex; align-items: center; gap: 15px; flex-grow: 1; }
+        .post-check { transform: scale(1.5); cursor: pointer; } /* チェックボックスを少し大きく */
+        
+        .delete-btn { background: #e74c3c; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; min-width: 80px; }
         .delete-btn:hover { background: #c0392b; }
-        input[type="password"] { padding: 10px; width: 80%; margin-bottom: 20px; border-radius: 4px; border: none; }
+        input[type="password"] { padding: 10px; width: 100%; box-sizing: border-box; margin-bottom: 20px; border-radius: 4px; border: none; }
     </style>
 </head>
 <body>
@@ -20,85 +28,62 @@
         <p>Vercelで設定した ADMIN_PASSWORD を入力してください</p>
         <input type="password" id="adminPass" placeholder="パスワードを入力...">
         
-        <hr>
+        <div class="control-bar">
+            <label style="cursor: pointer; font-weight: bold;">
+                <input type="checkbox" id="selectAllCheck" onchange="toggleSelectAll()" class="post-check"> 
+                すべて選択
+            </label>
+            <button class="bulk-delete-btn" onclick="deleteSelectedPosts()">🗑️ 選択した項目を一括削除</button>
+        </div>
+
         <div id="admin-list">
-            <p>※ここに投稿一覧が読み込まれます（実装に合わせて読み込み処理を追加してください）</p>
+            <p>読み込み中...</p>
         </div>
     </div>
 
     <script>
         // ==========================================
-        // 🗑️ 削除ボタンを押したときの処理
-        // ==========================================
-        async function deletePost(docId) {
-            const pass = document.getElementById("adminPass").value;
-            
-            if (!pass) {
-                alert("パスワードを入力してください！");
-                return;
-            }
-
-            if (!confirm("本当にこの投稿を削除しますか？")) return;
-
-            try {
-                // 前回作った Python の削除APIを呼び出す
-                const response = await fetch("/api/delete", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ doc_id: docId, password: pass })
-                });
-                
-                if (response.ok) {
-                    alert("削除しました！");
-                    location.reload(); // 画面を更新
-                } else {
-                    alert("パスワードが違うか、エラーが発生しました。");
-                }
-            } catch (error) {
-                console.error("エラー:", error);
-                alert("通信エラーが発生しました。");
-            }
-        }
-
-       // ==========================================
         // 📦 投稿一覧を読み込んで表示する処理
         // ==========================================
         async function loadAdminPosts() {
             const adminList = document.getElementById("admin-list");
-            adminList.innerHTML = "<p>読み込み中...</p>"; // ローディング表示
 
             try {
-                // いつものように投稿一覧を取得するAPIを叩く
-                // ※もしあなたのアプリの取得APIのURLが違う場合は書き換えてください
                 const response = await fetch("/api/suggestions"); 
                 const posts = await response.json();
-
-                adminList.innerHTML = ""; // ローディングの文字を消す
+                adminList.innerHTML = "";
 
                 if (posts.length === 0) {
                     adminList.innerHTML = "<p>現在の投稿はありません。</p>";
                     return;
                 }
 
-                // 取得した投稿の数だけループして画面に表示する
                 posts.forEach(post => {
                     const postDiv = document.createElement("div");
                     postDiv.className = "post";
 
-                    // 意見のテキスト部分
+                    // 左側（チェックボックスとテキスト）
+                    const contentDiv = document.createElement("div");
+                    contentDiv.className = "post-content";
+                    
+                    const checkbox = document.createElement("input");
+                    checkbox.type = "checkbox";
+                    checkbox.className = "post-check";
+                    checkbox.value = post.id; // チェックボックスの裏にIDを隠し持つ
+
                     const textSpan = document.createElement("span");
                     textSpan.textContent = post.text;
 
-                    // 🗑️ 削除ボタン部分
+                    contentDiv.appendChild(checkbox);
+                    contentDiv.appendChild(textSpan);
+
+                    // 右側（個別の削除ボタン）
                     const deleteBtn = document.createElement("button");
                     deleteBtn.className = "delete-btn";
-                    deleteBtn.textContent = "🗑️ 削除";
-                    
-                    // ここが重要！ボタンを押した時に、その投稿のIDを deletePost に渡す
+                    deleteBtn.textContent = "🗑️ 個別削除";
                     deleteBtn.onclick = () => deletePost(post.id);
 
-                    // 画面にくっつける
-                    postDiv.appendChild(textSpan);
+                    postDiv.appendChild(contentDiv);
                     postDiv.appendChild(deleteBtn);
                     adminList.appendChild(postDiv);
                 });
@@ -109,9 +94,81 @@
             }
         }
 
-        // 画面が開いた瞬間に、この読み込み処理を自動スタートさせる
-        window.onload = loadAdminPosts;
+        // ==========================================
+        // ☑️ 「すべて選択」のチェックボックスを連動させる処理
+        // ==========================================
+        function toggleSelectAll() {
+            const isChecked = document.getElementById("selectAllCheck").checked;
+            const checkboxes = document.querySelectorAll(".post-check");
+            // 画面上のすべてのチェックボックスの状態を、親玉に合わせる
+            checkboxes.forEach(cb => cb.checked = isChecked);
+        }
 
+        // ==========================================
+        // 🗑️ 【個別】削除ボタンを押したときの処理
+        // ==========================================
+        async function deletePost(docId) {
+            const pass = document.getElementById("adminPass").value;
+            if (!pass) { alert("パスワードを入力してください！"); return; }
+            if (!confirm("本当にこの投稿を削除しますか？")) return;
+
+            try {
+                const response = await fetch("/api/delete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ doc_id: docId, password: pass })
+                });
+                
+                if (response.ok) {
+                    alert("削除しました！");
+                    location.reload();
+                } else {
+                    alert("パスワードが違うか、エラーが発生しました。");
+                }
+            } catch (error) {
+                alert("通信エラーが発生しました。");
+            }
+        }
+
+        // ==========================================
+        // 🧨 【一括】選択した項目を一気に削除する処理
+        // ==========================================
+        async function deleteSelectedPosts() {
+            // チェックが入っている項目だけを抽出
+            const checkboxes = document.querySelectorAll("#admin-list .post-check:checked");
+            const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+
+            if (selectedIds.length === 0) {
+                alert("削除する項目が選択されていません。");
+                return;
+            }
+
+            const pass = document.getElementById("adminPass").value;
+            if (!pass) { alert("パスワードを入力してください！"); return; }
+            if (!confirm(`選択された ${selectedIds.length} 件の投稿を一括削除します。本当によろしいですか？`)) return;
+
+            try {
+                // 💡 Promise.all を使って、選択された数だけ「個別削除API」を同時に撃ち込む
+                const deletePromises = selectedIds.map(id => 
+                    fetch("/api/delete", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ doc_id: id, password: pass })
+                    })
+                );
+
+                // すべての削除通信が終わるまで待つ
+                await Promise.all(deletePromises);
+                
+                alert("一括削除が完了しました！");
+                location.reload();
+            } catch (error) {
+                console.error("一括削除エラー:", error);
+                alert("一部の削除に失敗した可能性があります。");
+            }
+        }
+
+        window.onload = loadAdminPosts;
     </script>
 </body>
 </html>
