@@ -60,9 +60,58 @@
             }
         }
 
-        // 💡 データの読み込み部分は、あなたの app.js の処理をここにコピーして、
-        // 投稿を表示する際に `<button onclick="deletePost('${post.id}')" class="delete-btn">削除</button>` 
-        // を一緒に出力するように書き換えてください。
+       // ==========================================
+        // 📦 投稿一覧を読み込んで表示する処理
+        // ==========================================
+        async function loadAdminPosts() {
+            const adminList = document.getElementById("admin-list");
+            adminList.innerHTML = "<p>読み込み中...</p>"; // ローディング表示
+
+            try {
+                // いつものように投稿一覧を取得するAPIを叩く
+                // ※もしあなたのアプリの取得APIのURLが違う場合は書き換えてください
+                const response = await fetch("/api/suggestions"); 
+                const posts = await response.json();
+
+                adminList.innerHTML = ""; // ローディングの文字を消す
+
+                if (posts.length === 0) {
+                    adminList.innerHTML = "<p>現在の投稿はありません。</p>";
+                    return;
+                }
+
+                // 取得した投稿の数だけループして画面に表示する
+                posts.forEach(post => {
+                    const postDiv = document.createElement("div");
+                    postDiv.className = "post";
+
+                    // 意見のテキスト部分
+                    const textSpan = document.createElement("span");
+                    textSpan.textContent = post.text;
+
+                    // 🗑️ 削除ボタン部分
+                    const deleteBtn = document.createElement("button");
+                    deleteBtn.className = "delete-btn";
+                    deleteBtn.textContent = "🗑️ 削除";
+                    
+                    // ここが重要！ボタンを押した時に、その投稿のIDを deletePost に渡す
+                    deleteBtn.onclick = () => deletePost(post.id);
+
+                    // 画面にくっつける
+                    postDiv.appendChild(textSpan);
+                    postDiv.appendChild(deleteBtn);
+                    adminList.appendChild(postDiv);
+                });
+
+            } catch (error) {
+                console.error("読み込みエラー:", error);
+                adminList.innerHTML = "<p>データの読み込みに失敗しました。</p>";
+            }
+        }
+
+        // 画面が開いた瞬間に、この読み込み処理を自動スタートさせる
+        window.onload = loadAdminPosts;
+
     </script>
 </body>
 </html>
