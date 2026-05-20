@@ -1,56 +1,195 @@
 <!DOCTYPE html>
 <html lang="ja">
-
-    <script type="importmap">
-  {
-    "imports": {
-      "firebase/app": "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js",
-      "firebase/auth": "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js"
-    }
-  }
-</script>
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>みんなの目安箱</title>
-    <link rel="stylesheet" href="style.css">
+    <title>目安箱アプリ</title>
+    <style>
+        /* 🎨 紺とグレーを基調としたカラーパレット */
+        :root {
+            --navy: #1B2A47;
+            --light-navy: #2C3E50;
+            --gray: #7F8C8D;
+            --light-gray: #F4F5F7;
+            --white: #FFFFFF;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--light-gray);
+            color: var(--navy);
+            margin: 0;
+            padding: 0;
+        }
+
+        header {
+            background-color: var(--navy);
+            color: var(--white);
+            text-align: center;
+            padding: 20px;
+        }
+
+        /* タブのスタイル */
+        .tab-container {
+            display: flex;
+            background-color: var(--gray);
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 15px;
+            background: none;
+            border: none;
+            color: var(--white);
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .tab-btn.active {
+            background-color: var(--light-navy);
+        }
+
+        .container {
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* 投稿フォーム */
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 15px;
+            box-sizing: border-box;
+            border: 2px solid var(--gray);
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        .submit-btn {
+            background-color: var(--navy);
+            color: var(--white);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        /* 🏆 ジャンル別セクション */
+        .section-title {
+            border-left: 5px solid var(--navy);
+            padding-left: 10px;
+            color: var(--navy);
+            margin-top: 30px;
+        }
+        
+        /* トップ3の横並びレイアウト */
+        .top3-grid {
+            display: flex;
+            gap: 15px;
+            overflow-x: auto; /* スマホで横スクロールできるように */
+            padding-bottom: 10px;
+        }
+
+        /* 意見カードのスタイル */
+        .post-card {
+            background: var(--white);
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            min-width: 200px;
+            flex: 1;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        /* 詳細一覧（縦並び）用のスタイル */
+        .vertical-list .post-card {
+            margin-bottom: 15px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .like-btn {
+            background-color: var(--light-gray);
+            border: 1px solid var(--gray);
+            padding: 5px 10px;
+            border-radius: 20px;
+            cursor: pointer;
+            color: var(--navy);
+            margin-top: 10px;
+        }
+
+        .more-btn {
+            display: block;
+            text-align: center;
+            background-color: var(--gray);
+            color: var(--white);
+            padding: 10px;
+            border-radius: 20px;
+            text-decoration: none;
+            margin-top: 10px;
+            cursor: pointer;
+        }
+
+        .back-btn {
+            background-color: var(--gray);
+            color: var(--white);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+    </style>
 </head>
 <body>
 
-<header>
-    <h1>みんなの目安箱うおｗｗｗ 📮</h1>
-  
-    <div id="auth-area" style="margin-top: 10px;">
-    <button id="login-btn" style="padding: 5px 10px; cursor: pointer;">Googleアカウントでログイン</button>
-    <span id="user-info" style="display: none; color: white;"></span>
-    <button id="logout-btn" style="display: none; padding: 5px 10px; cursor: pointer; background-color: #ff4d4d; color: white; border: none; border-radius: 4px; margin-left: 10px; font-weight: bold;">ログアウト</button>
-</div>
-    
-   
-</header>
+    <header>
+        <h1>目安箱</h1>
+    </header>
 
+    <div class="tab-container">
+        <button class="tab-btn active" id="tab-post" onclick="switchTab('post')">📝 意見を投稿する</button>
+        <button class="tab-btn" id="tab-view" onclick="switchTab('view')">👀 みんなの意見を見る</button>
+    </div>
+
+    <div class="container">
+        <div id="page-post">
+            <h2>新しい意見を投稿</h2>
+            <textarea id="suggestionText" placeholder="ここに意見を書いてください..."></textarea>
+            <button class="submit-btn" onclick="submitSuggestion()">送信する</button>
+        </div>
+
+        <div id="page-view" style="display: none;">
+            
+            <h3 class="section-title">👑 人気順</h3>
+            <div id="popular-top3" class="top3-grid"></div>
+            <div class="more-btn" onclick="showCategoryDetail('popular', '👑 人気順')">もっと表示する</div>
+
+            <h3 class="section-title">✨ 新着順</h3>
+            <div id="newest-top3" class="top3-grid"></div>
+            <div class="more-btn" onclick="showCategoryDetail('newest', '✨ 新着順')">もっと表示する</div>
+
+            <h3 class="section-title">🔥 話題順</h3>
+            <div id="trending-top3" class="top3-grid"></div>
+            <div class="more-btn" onclick="showCategoryDetail('trending', '🔥 話題順')">もっと表示する</div>
+
+        </div>
+
+        
 <div class="kairu-assistant" aria-live="polite">
     <div id="kairu-textbox" class="kairu-textbox">何かお困りのことはありますか？</div>
     <img id="kairu-image" src="kairu.png" alt="カイル" width="320" height="320">
 </div>
 
-    <main>
-        <div class="tab-buttons" style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;">
-    <button data-tab="post" style="padding: 10px 20px; cursor: pointer;">📝 投稿する</button>
-    <button data-tab="popular" style="padding: 10px 20px; cursor: pointer;">🔥 人気順</button>
-    <button data-tab="new" style="padding: 10px 20px; cursor: pointer;">✨ 新着順</button>
-</div>
+        <div id="page-detail" style="display: none;">
+            <button class="back-btn" onclick="backToDashboard()">◀ 戻る</button>
+            <h2 id="detail-title" class="section-title">タイトル</h2>
+            <div id="detail-list" class="vertical-list"></div>
+        </div>
+    </div>
 
-<div id="post-section">
-    <textarea id="suggestion-input" placeholder="学校を良くする意見を書いてね..." style="width: 100%; height: 100px; margin-bottom: 10px;"></textarea>
-    <button id="submit-btn" style="padding: 10px; width: 100%;">投稿する</button>
-</div>
-
-<div id="list-section" style="display: none;">
-    <ul id="suggestion-list" style="list-style-type: none; padding: 0;"></ul>
-</div>
-    </main>
-    <script type="module" src="app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>

@@ -1,25 +1,27 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged ,signOut} from "firebase/auth";
+import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "firebase/auth";
 
-// Your web app's Firebase configuration
+// ==========================================
+// ⚙️ 1. Firebase & 初期設定
+// ==========================================
 const firebaseConfig = {
-  apiKey: "AIzaSyCTbxVNCdcJyFpYAfONVhmr9lPlFPK6Hvc",
-  authDomain: "meyasubako-23797.firebaseapp.com",
-  databaseURL: "https://meyasubako-23797-default-rtdb.firebaseio.com",
-  projectId: "meyasubako-23797",
-  storageBucket: "meyasubako-23797.firebasestorage.app",
-  messagingSenderId: "368665628904",
-  appId: "1:368665628904:web:68313348fb56c23b01795d",
-  measurementId: "G-Y57PT610HG"
+    apiKey: "AIzaSyCTbxVNCdcJyFpYAfONVhmr9lPlFPK6Hvc",
+    authDomain: "meyasubako-23797.firebaseapp.com",
+    databaseURL: "https://meyasubako-23797-default-rtdb.firebaseio.com",
+    projectId: "meyasubako-23797",
+    storageBucket: "meyasubako-23797.firebasestorage.app",
+    messagingSenderId: "368665628904",
+    appId: "1:368665628904:web:68313348fb56c23b01795d",
+    measurementId: "G-Y57PT610HG"
 };
 
-// Firebaseの初期化
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: 'select_account' });
 
 let currentUserToken = null;
+let allPosts = []; // すべての投稿データを一時保存する箱
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxZztgHvkKfaH3WPkWEH8f9KoiBSAFNrbPFgKkbAbLnyy_-VNjhBHSfIJ04DGJraM0T/exec"; 
 const KAIRU_NORMAL_IMAGE = "kairu.png";
@@ -27,27 +29,34 @@ const KAIRU_REPLY_IMAGE = "kairu_excel.png";
 const KAIRU_NORMAL_TEXT = "何かお困りのことはありますか？";
 const KAIRU_REPLY_TEXT = "知りません";
 
-document.getElementById("login-btn").addEventListener("click", login);
-document.getElementById("submit-btn").addEventListener("click", createSuggestion); // 💡 これを追加！
-document.getElementById("logout-btn").addEventListener("click", logout);
-document.getElementById("suggestion-input").addEventListener("input", () => setKairuImage(false));
-document.querySelectorAll("[data-tab]").forEach((button) => {
-    button.addEventListener("click", () => switchTab(button.dataset.tab));
+// ==========================================
+// 🖱️ 2. イベントリスナーの設定
+// ==========================================
+document.addEventListener("DOMContentLoaded", () => {
+    // ログイン・ログアウトボタンが存在する場合のみイベントを登録
+    const loginBtn = document.getElementById("login-btn");
+    const logoutBtn = document.getElementById("logout-btn");
+    if(loginBtn) loginBtn.addEventListener("click", login);
+    if(logoutBtn) logoutBtn.addEventListener("click", logout);
+
+    // 投稿ボタンと入力欄
+    document.getElementById("submit-btn").addEventListener("click", createSuggestion);
+    const suggestionInput = document.getElementById("suggestion-input") || document.getElementById("suggestionText");
+    if(suggestionInput) {
+        suggestionInput.addEventListener("input", () => setKairuImage(false));
+    }
 });
 
 function setKairuImage(isReply) {
     const kairuImage = document.getElementById("kairu-image");
     const kairuTextbox = document.getElementById("kairu-textbox");
-
-    if (kairuImage) {
-        kairuImage.src = isReply ? KAIRU_REPLY_IMAGE : KAIRU_NORMAL_IMAGE;
-    }
-    if (kairuTextbox) {
-        kairuTextbox.innerText = isReply ? KAIRU_REPLY_TEXT : KAIRU_NORMAL_TEXT;
-    }
+    if (kairuImage) kairuImage.src = isReply ? KAIRU_REPLY_IMAGE : KAIRU_NORMAL_IMAGE;
+    if (kairuTextbox) kairuTextbox.innerText = isReply ? KAIRU_REPLY_TEXT : KAIRU_NORMAL_TEXT;
 }
 
-// 生徒のログイン状態を監視する
+// ==========================================
+// 🔐 3. 認証（ログイン・ログアウト）処理
+// ==========================================
 onAuthStateChanged(auth, async (user) => {
     const loginBtn = document.getElementById("login-btn");
     const userInfo = document.getElementById("user-info");
@@ -55,17 +64,20 @@ onAuthStateChanged(auth, async (user) => {
 
     if (user) {
         currentUserToken = await user.getIdToken();
-        loginBtn.style.display = "none";
-        userInfo.style.display = "inline";
-        userInfo.innerText = `ログイン中: ${user.displayName}さん`;
-        logoutBtn.style.display = "inline";
+        if(loginBtn) loginBtn.style.display = "none";
+        if(userInfo) {
+            userInfo.style.display = "inline";
+            userInfo.innerText = `ログイン中: ${user.displayName}さん`;
+        }
+        if(logoutBtn) logoutBtn.style.display = "inline";
     } else {
         currentUserToken = null;
-        loginBtn.style.display = "inline";
-        userInfo.style.display = "none";
-        logoutBtn.style.display = "none";
+        if(loginBtn) loginBtn.style.display = "inline";
+        if(userInfo) userInfo.style.display = "none";
+        if(logoutBtn) logoutBtn.style.display = "none";
     }
-    fetchSuggestions();
+    // ログイン状態が確定したらデータを取得
+    fetchAllPosts();
 });
 
 async function login() {
@@ -87,86 +99,40 @@ async function logout() {
     }
 }
 
-// --- 1. 意見一覧を取得して画面に表示する（合流版） ---
-async function fetchSuggestions() {
-    try {
-        // ① Pythonバックエンド（Firestore）からデータを取得
-        const res = await fetch("/api/suggestions");
-        const suggestions = await res.json();
+// ==========================================
+// 🔄 4. 画面（タブ）切り替え処理
+// ==========================================
+// ※グローバルから呼び出せるように window に登録
+window.switchTab = function(tabName) {
+    document.getElementById('page-post').style.display = (tabName === 'post') ? 'block' : 'none';
+    document.getElementById('page-view').style.display = (tabName === 'view') ? 'block' : 'none';
+    document.getElementById('page-detail').style.display = 'none';
 
-        // ② Googleフォーム（GAS）からデータを取得
-        const gasRes = await fetch(GAS_URL);
-        const formData = await gasRes.json();
+    document.getElementById('tab-post').classList.toggle('active', tabName === 'post');
+    document.getElementById('tab-view').classList.toggle('active', tabName === 'view');
 
-        // ③ GASのデータをアプリの形式に合わせる（時間も変換）
-        let formSuggestions = formData.map((item, idx) => ({
-            id: `form-${idx}`,
-            text: item.content,
-            likes: 0, 
-            isForm: true,
-            created_at: item.timestamp ? new Date(item.timestamp).getTime() : 0 
-        }));
-
-        // ④ データを合体！
-        let allSuggestions = suggestions.concat(formSuggestions);
-
-        // ⑤ 💡 現在のタブに合わせて並び替える！
-        if (currentTab === "popular") {
-            allSuggestions.sort((a, b) => b.likes - a.likes); // いいねが多い順
-        } else if (currentTab === "new") {
-            allSuggestions.sort((a, b) => b.created_at - a.created_at); // 時間が新しい順
-        }
-
-        // ⑥ 画面に出力する
-        const listElement = document.getElementById("suggestion-list");
-        if (!listElement) return; // エラー防止
-        listElement.innerHTML = ""; // 一旦リストをリセットして空にする
-
-        allSuggestions.forEach((item, index) => {
-            const rank = index + 1;
-            const card = document.createElement("li");
-            card.className = "suggestion-card";
-            
-            // 💡 フォームの意見であることが分かるように小さな文字を添える（ボタンは隠さない！）
-            let badgeHtml = item.isForm 
-                ? `<div style="color: #888; font-size: 0.8em; margin-bottom: 5px;">📋 フォームからの意見</div>` 
-                : "";
-
-            card.innerHTML = `
-                <div class="rank-badge rank-${rank <= 3 ? rank : 'other'}">${rank}</div>
-                <div class="content">
-                    <p class="text">${escapeHtml(item.text)}</p>
-                    ${badgeHtml}
-                    <div class="actions">
-                        <button class="like-btn" id="like-${item.id}">❤️ いいね</button>
-                        <span class="like-count">${item.likes}</span>
-                    </div>
-                </div>
-            `;
-            listElement.appendChild(card);
-
-            // 💡 すべての意見（自作アプリもフォームも）にいいねを押せるようにイベントを紐付ける
-            document.getElementById(`like-${item.id}`).addEventListener("click", () => likeSuggestion(item.id));
-        });
-    } catch (error) {
-        console.error("エラー:", error);
+    if (tabName === 'view') {
+        fetchAllPosts();
     }
 }
 
+window.backToDashboard = function() {
+    document.getElementById('page-detail').style.display = 'none';
+    document.getElementById('page-view').style.display = 'block';
+}
 
-// --- 2. 新しい意見を投稿する（要ログイン・連打防止付き） ---
+// ==========================================
+// 📡 5. 新しい意見の投稿
+// ==========================================
 async function createSuggestion() {
-    if (!currentUserToken) {
-        alert("意見を投稿するにはログインが必要です！");
-        return;
-    }
+    if (!currentUserToken) return alert("意見を投稿するにはログインが必要です！");
 
-    const inputElement = document.getElementById("suggestion-input");
-    const submitBtn = document.getElementById("submit-btn"); // 💡 ボタンを取得
+    const inputElement = document.getElementById("suggestion-input") || document.getElementById("suggestionText");
+    const submitBtn = document.getElementById("submit-btn");
     const text = inputElement.value.trim();
-    if (!text) return;
+    
+    if (!text) return alert("意見を入力してください");
 
-    // 🛡️ ボタンを無効化して連打を防ぐ
     submitBtn.disabled = true;
     submitBtn.innerText = "送信中...";
 
@@ -181,31 +147,117 @@ async function createSuggestion() {
         });
 
         if (!response.ok) {
-            // Pythonから送られてきたエラーメッセージ（429など）を読み取って表示
             const errorData = await response.json();
             throw new Error(errorData.detail || "投稿に失敗しました");
         }
 
         inputElement.value = "";
         setKairuImage(true);
-        fetchSuggestions();
+        alert("投稿しました！");
+        window.switchTab('view'); 
     } catch (error) {
-        alert(error.message); // 💡 AIからの警告やエラーをそのまま画面に出す
+        alert(error.message);
     } finally {
-        // 🛡️ 成功しても失敗しても、10秒後にボタンを復活させる（クールダウン）
         setTimeout(() => {
             submitBtn.disabled = false;
-            submitBtn.innerText = "投稿する";
-        }, 10000); // 10000ミリ秒 = 10秒
+            submitBtn.innerText = "送信する";
+        }, 10000); 
+    }
+}
+window.createSuggestion = createSuggestion; // HTMLから呼べるようにする
+
+// ==========================================
+// 📦 6. データの取得と結合（Firestore + GAS）
+// ==========================================
+async function fetchAllPosts() {
+    try {
+        const res = await fetch("/api/suggestions");
+        const suggestions = await res.json();
+
+        const gasRes = await fetch(GAS_URL);
+        const formData = await gasRes.json();
+
+        const formSuggestions = formData.map((item, idx) => ({
+            id: `form-${idx}`,
+            text: item.content,
+            likes: 0, 
+            isForm: true,
+            created_at: item.timestamp ? new Date(item.timestamp).getTime() : 0 
+        }));
+
+        // アプリのデータとフォームのデータを合体
+        allPosts = suggestions.concat(formSuggestions);
+        
+        // 画面に描画
+        renderDashboard();
+    } catch (error) {
+        console.error("データ取得エラー:", error);
     }
 }
 
-// --- 3. いいね！を押す（要ログイン・二重投票防止） ---
-async function likeSuggestion(id) {
-    if (!currentUserToken) {
-        alert("「いいね」をするにはログインが必要です！");
-        return;
-    }
+// ==========================================
+// 🎨 7. ダッシュボードの描画（3ジャンル）
+// ==========================================
+function renderDashboard() {
+    // 👑 人気順（いいね数降順）
+    const popular = [...allPosts].sort((a, b) => b.likes - a.likes);
+    
+    // ✨ 新着順（時間降順）
+    const newest = [...allPosts].sort((a, b) => b.created_at - a.created_at);
+    
+    // 🔥 話題順（ランダム）※運用に応じて後でアルゴリズムを変更可能
+    const trending = [...allPosts].sort(() => Math.random() - 0.5);
+
+    renderPostCards(popular.slice(0, 3), 'popular-top3');
+    renderPostCards(newest.slice(0, 3), 'newest-top3');
+    renderPostCards(trending.slice(0, 3), 'trending-top3');
+}
+
+// 🔍 もっと表示する
+window.showCategoryDetail = function(category, titleText) {
+    document.getElementById('page-view').style.display = 'none';
+    document.getElementById('page-detail').style.display = 'block';
+    document.getElementById('detail-title').textContent = titleText;
+
+    let targetPosts = [];
+    if (category === 'popular') targetPosts = [...allPosts].sort((a, b) => b.likes - a.likes);
+    if (category === 'newest')  targetPosts = [...allPosts].sort((a, b) => b.created_at - a.created_at);
+    if (category === 'trending') targetPosts = [...allPosts].sort(() => Math.random() - 0.5);
+
+    renderPostCards(targetPosts, 'detail-list');
+}
+
+// ==========================================
+// 🖨️ 8. カードの生成処理（フォーム対応版）
+// ==========================================
+function renderPostCards(posts, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = ""; 
+
+    posts.forEach(post => {
+        const card = document.createElement("div");
+        card.className = "post-card";
+
+        // フォームからの意見の場合のバッジ
+        let badgeHtml = post.isForm 
+            ? `<div style="color: #7F8C8D; font-size: 0.8em; margin-bottom: 5px; font-weight: bold;">📋 フォームからの意見</div>` 
+            : "";
+
+        card.innerHTML = `
+            ${badgeHtml}
+            <p style="margin-top: 5px; font-size: 15px; line-height: 1.4;">${escapeHtml(post.text)}</p>
+            <button class="like-btn" onclick="likeSuggestion('${post.id}')">❤️ ${post.likes}</button>
+        `;
+        container.appendChild(card);
+    });
+}
+
+// ==========================================
+// ❤️ 9. いいね！処理
+// ==========================================
+window.likeSuggestion = async function(id) {
+    if (!currentUserToken) return alert("「いいね」をするにはログインが必要です！");
 
     try {
         const response = await fetch(`/api/suggestions/${id}/like`, {
@@ -216,32 +268,25 @@ async function likeSuggestion(id) {
         });
 
         if (!response.ok) throw new Error("いいねに失敗しました");
-        fetchSuggestions();
+        
+        // 再取得して画面を更新（詳細画面にいる場合は詳細画面をキープ）
+        await fetchAllPosts();
+        
+        if (document.getElementById('page-detail').style.display === 'block') {
+            // 現在のタイトルからカテゴリを逆算して再描画
+            const title = document.getElementById('detail-title').textContent;
+            let cat = 'newest';
+            if(title.includes('人気')) cat = 'popular';
+            if(title.includes('話題')) cat = 'trending';
+            showCategoryDetail(cat, title);
+        }
     } catch (error) {
         console.error(error);
     }
 }
 
-// --- タブ切り替え機能 ---
-let currentTab = "post"; // 今開いているタブを記憶する変数
-
-function switchTab(tabName) {
-    currentTab = tabName;
-    
-    // 一旦両方のエリアを隠す
-    document.getElementById("post-section").style.display = "none";
-    document.getElementById("list-section").style.display = "none";
-
-    if (tabName === "post") {
-        // 「投稿する」が選ばれたら投稿画面だけ見せる
-        document.getElementById("post-section").style.display = "block";
-    } else {
-        // 「人気順」「新着順」が選ばれたらリスト画面を見せて、データを取得する
-        document.getElementById("list-section").style.display = "block";
-        fetchSuggestions();
-    }
-}
-
+// ユーティリティ
 function escapeHtml(str) {
+    if (!str) return "";
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
