@@ -164,7 +164,7 @@ async function createSuggestion() {
         }, 10000); 
     }
 }
-window.createSuggestion = createSuggestion; // HTMLから呼べるようにする
+window.submitSuggestion = createSuggestion; // 💡 HTML側の submitSuggestion() と名前を合わせる
 
 // ==========================================
 // 📦 6. データの取得と結合（Firestore + GAS）
