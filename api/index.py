@@ -7,70 +7,18 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
+from pydantic import BaseModel
+from fastapi import HTTPException
+
 
 app = FastAPI()
 
 # =================================================================
-# 🤖 1. Groq AI フィルタリング（Geminiから乗り換え版）
+# 🤖 1. AIフィルター（一時的にお休み・全通し）
 # =================================================================
 def is_safe_with_ai(text: str) -> bool:
-    """投稿内容が適切かどうかを別のAI（Groq / Llama 3）に判定させる関数"""
-    
-    # 💡 Vercelの環境変数名を「GROQ_API_KEY」に変更します
-    api_key = os.environ.get("GROQ_API_KEY", "").strip()
-    
-    if not api_key:
-        print("警告: GROQ_API_KEY が未設定のため、AIチェックをスキップします。")
-        return True
-
-    try:
-        # 💡 GroqのAPI（超高速なAI）を呼び出します
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}'
-        }
-        
-        prompt = f"""
-        あなたは学校の目安箱の優秀なモデレーターです。
-        以下の投稿内容が「学校の目安箱として適切か」を判定し、「OK」または「NG」の2文字だけで答えてください。
-        
-        【NGの条件】
-        ・暴言、誹謗中傷、卑猥な言葉が含まれている
-        ・「ああああ」「www」などの意味のない文字の羅列
-        ・特定の個人や先生、生徒を名指しで攻撃している
-        
-        【投稿内容】
-        {text}
-        """
-        
-        # 💡 世界トップクラスに速い無料モデル「llama3-8b-8192」を使用します
-        payload = {
-            "model": "llama3-8b-8192",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.1
-        }
-        
-        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
-        
-        with urllib.request.urlopen(req) as response:
-            result_data = json.loads(response.read().decode('utf-8'))
-            ai_reply = result_data.get('choices', [{}])[0].get('message', {}).get('content', '')
-            print(f"AIの判定結果: {ai_reply}") # ログ確認用
-            
-        return "OK" in ai_reply
-        
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8')
-        print(f"AI通信エラー詳細: {e.code} - {error_body}")
-        
-        if e.code == 429:
-            raise HTTPException(status_code=429, detail="現在アクセスが集中しています。10秒ほど待ってから再度お試しください。")
-        raise HTTPException(status_code=500, detail="AIフィルターが一時的に応答していません。時間をおいてお試しください。")
-        
-    except Exception as e:
-        print(f"AIシステムエラー: {e}")
-        raise HTTPException(status_code=500, detail="システムエラーが発生しました。時間をおいてお試しください。")
+    """現在は人力モデレーションのため、すべてTrue（安全）を返します"""
+    return True
 
 # =================================================================
 # 🔥 2. Firebase / Firestore の初期化
@@ -198,3 +146,27 @@ def like_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
         
     doc_ref.update({"liked_by": liked_by})
     return {"status": status, "likes": len(liked_by)}
+
+class DeleteRequest(BaseModel):
+    doc_id: str
+    password: str
+
+# =================================================================
+# 🗑️ 投稿削除API（管理者専用）
+# =================================================================
+@app.post("/api/delete")
+def delete_suggestion(req: DeleteRequest):
+    # Vercelの環境変数から管理者パスワードを取得
+    admin_pass = os.environ.get("ADMIN_PASSWORD", "")
+    
+    # パスワードが設定されていない、または間違っている場合はエラーで弾く
+    if not admin_pass or req.password != admin_pass:
+        raise HTTPException(status_code=403, detail="パスワードが違います")
+        
+    try:
+        # Firestoreから指定されたIDの投稿を削除
+        db.collection("suggestions").document(req.doc_id).delete()
+        return {"status": "success", "message": "削除しました"}
+    except Exception as e:
+        print(f"削除エラー: {e}")
+        raise HTTPException(status_code=500, detail="システムエラーで削除できませんでした")
