@@ -4,193 +4,108 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>目安箱アプリ</title>
-    <style>
-        /* 🎨 紺とグレーを基調としたカラーパレット */
-        :root {
-            --navy: #1B2A47;
-            --light-navy: #2C3E50;
-            --gray: #7F8C8D;
-            --light-gray: #F4F5F7;
-            --white: #FFFFFF;
-        }
-
-        body {
-            font-family: 'Helvetica Neue', Arial, sans-serif;
-            background-color: var(--light-gray);
-            color: var(--navy);
-            margin: 0;
-            padding: 0;
-        }
-
-        header {
-            background-color: var(--navy);
-            color: var(--white);
-            text-align: center;
-            padding: 20px;
-        }
-
-        /* タブのスタイル */
-        .tab-container {
-            display: flex;
-            background-color: var(--gray);
-        }
-        .tab-btn {
-            flex: 1;
-            padding: 15px;
-            background: none;
-            border: none;
-            color: var(--white);
-            font-size: 16px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        .tab-btn.active {
-            background-color: var(--light-navy);
-        }
-
-        .container {
-            padding: 20px;
-            max-width: 800px;
-            margin: 0 auto;
-        }
-
-        /* 投稿フォーム */
-        textarea {
-            width: 100%;
-            height: 150px;
-            padding: 15px;
-            box-sizing: border-box;
-            border: 2px solid var(--gray);
-            border-radius: 8px;
-            font-size: 16px;
-        }
-        .submit-btn {
-            background-color: var(--navy);
-            color: var(--white);
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 16px;
-            margin-top: 10px;
-            width: 100%;
-        }
-
-        /* 🏆 ジャンル別セクション */
-        .section-title {
-            border-left: 5px solid var(--navy);
-            padding-left: 10px;
-            color: var(--navy);
-            margin-top: 30px;
-        }
-        
-        /* トップ3の横並びレイアウト */
-        .top3-grid {
-            display: flex;
-            gap: 15px;
-            overflow-x: auto; /* スマホで横スクロールできるように */
-            padding-bottom: 10px;
-        }
-
-        /* 意見カードのスタイル */
-        .post-card {
-            background: var(--white);
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 15px;
-            min-width: 200px;
-            flex: 1;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        /* 詳細一覧（縦並び）用のスタイル */
-        .vertical-list .post-card {
-            margin-bottom: 15px;
-            width: 100%;
-            box-sizing: border-box;
-        }
-
-        .like-btn {
-            background-color: var(--light-gray);
-            border: 1px solid var(--gray);
-            padding: 5px 10px;
-            border-radius: 20px;
-            cursor: pointer;
-            color: var(--navy);
-            margin-top: 10px;
-        }
-
-        .more-btn {
-            display: block;
-            text-align: center;
-            background-color: var(--gray);
-            color: var(--white);
-            padding: 10px;
-            border-radius: 20px;
-            text-decoration: none;
-            margin-top: 10px;
-            cursor: pointer;
-        }
-
-        .back-btn {
-            background-color: var(--gray);
-            color: var(--white);
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-bottom: 20px;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:,">
 </head>
 <body>
+    <header class="site-header">
+        <div class="header-inner">
+            <div class="brand">
+                <p class="brand-kicker">学校の声を集める</p>
+                <h1>目安箱</h1>
+            </div>
 
-    <header>
-        <h1>目安箱</h1>
+            <div class="auth-panel" aria-live="polite">
+                <span id="user-info" class="user-info" hidden></span>
+                <button id="login-btn" class="ghost-btn" type="button">ログイン</button>
+                <button id="logout-btn" class="ghost-btn" type="button" hidden>ログアウト</button>
+            </div>
+        </div>
+
     </header>
 
-    <div class="tab-container">
-        <button class="tab-btn active" id="tab-post" onclick="switchTab('post')">📝 意見を投稿する</button>
-        <button class="tab-btn" id="tab-view" onclick="switchTab('view')">👀 みんなの意見を見る</button>
-    </div>
+    <main class="container">
+        <section id="page-post" class="page-section">
+            <div class="panel post-panel">
+                <div class="section-heading">
+                    <p class="section-label">Post</p>
+                    <h2>新しい意見を投稿</h2>
+                </div>
 
-    <div class="container">
-       <div id="page-post">
-            <h2>新しい意見を投稿</h2>
-            <textarea id="suggestionText" placeholder="ここに意見を書いてください..."></textarea>
-            <button id="submit-btn" class="submit-btn" onclick="submitSuggestion()">送信する</button>
-        </div>
+                <label class="input-label" for="suggestionText">意見の内容</label>
+                <textarea id="suggestionText" placeholder="学校生活で気づいたこと、改善してほしいことを書いてください。"></textarea>
+                <p id="post-helper" class="helper-text">投稿にはログインが必要です。</p>
+                <button id="submit-btn" class="primary-btn" type="button" disabled>送信する</button>
+            </div>
+        </section>
 
-        <div id="page-view" style="display: none;">
-            
-            <h3 class="section-title">👑 人気順</h3>
-            <div id="popular-top3" class="top3-grid"></div>
-            <div class="more-btn" onclick="showCategoryDetail('popular', '👑 人気順')">もっと表示する</div>
+        <section id="page-view" class="page-section dashboard-section">
+            <div class="section-heading dashboard-heading">
+                <p class="section-label">Explore</p>
+                <h2>みんなの意見</h2>
+            </div>
 
-            <h3 class="section-title">✨ 新着順</h3>
-            <div id="newest-top3" class="top3-grid"></div>
-            <div class="more-btn" onclick="showCategoryDetail('newest', '✨ 新着順')">もっと表示する</div>
+            <p id="dashboard-status" class="status-text" aria-live="polite"></p>
 
-            <h3 class="section-title">🔥 話題順</h3>
-            <div id="trending-top3" class="top3-grid"></div>
-            <div class="more-btn" onclick="showCategoryDetail('trending', '🔥 話題順')">もっと表示する</div>
+            <section class="category-section" aria-labelledby="popular-title">
+                <div class="category-header">
+                    <div>
+                        <p class="section-label">Trending</p>
+                        <h3 id="popular-title" class="section-title">人気順</h3>
+                    </div>
+                    <button class="more-btn" type="button" onclick="showCategoryDetail('popular', '人気順')">もっと見る</button>
+                </div>
+                <div id="popular-top3" class="post-grid"></div>
+            </section>
 
-        </div>
+            <section class="category-section" aria-labelledby="newest-title">
+                <div class="category-header">
+                    <div>
+                        <p class="section-label">New</p>
+                        <h3 id="newest-title" class="section-title">新着順</h3>
+                    </div>
+                    <button class="more-btn" type="button" onclick="showCategoryDetail('newest', '新着順')">もっと見る</button>
+                </div>
+                <div id="newest-top3" class="post-grid"></div>
+            </section>
 
-        
-<div class="kairu-assistant" aria-live="polite">
-    <div id="kairu-textbox" class="kairu-textbox">何かお困りのことはありますか？</div>
-    <img id="kairu-image" src="kairu.png" alt="カイル" width="320" height="320">
-</div>
+            <section class="category-section" aria-labelledby="trending-title">
+                <div class="category-header">
+                    <div>
+                        <p class="section-label">Hot</p>
+                        <h3 id="trending-title" class="section-title">話題順</h3>
+                    </div>
+                    <button class="more-btn" type="button" onclick="showCategoryDetail('trending', '話題順')">もっと見る</button>
+                </div>
+                <div id="trending-top3" class="post-grid"></div>
+            </section>
+        </section>
 
-        <div id="page-detail" style="display: none;">
-            <button class="back-btn" onclick="backToDashboard()">◀ 戻る</button>
-            <h2 id="detail-title" class="section-title">タイトル</h2>
+        <section id="page-detail" class="page-section" hidden>
+            <button class="back-btn" type="button" onclick="backToDashboard()">戻る</button>
+            <div class="section-heading">
+                <p class="section-label">List</p>
+                <h2 id="detail-title" class="section-title">タイトル</h2>
+            </div>
             <div id="detail-list" class="vertical-list"></div>
-        </div>
-    </div>
+        </section>
+    </main>
 
-   <script type="module" src="app.js"></script>
+    <aside class="kairu-assistant" aria-live="polite">
+        <div id="kairu-textbox" class="kairu-textbox">何かお困りのことはありますか？</div>
+        <img id="kairu-image" src="kairu.png" alt="カイル" width="320" height="320">
+    </aside>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <p>目安箱</p>
+            <nav class="footer-links" aria-label="フッターリンク">
+                <span>学校生活の気づきや改善案を集めるための投稿スペースです。</span>
+                <a href="terms.html">利用規約</a>
+            </nav>
+        </div>
+    </footer>
+
+    <script type="module" src="app.js"></script>
 </body>
 </html>
