@@ -2,6 +2,7 @@ import os
 import json
 import urllib.request
 import urllib.error
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Header, Depends
@@ -11,6 +12,11 @@ from firebase_admin import credentials, firestore, auth
 
 
 app = FastAPI()
+FEED_CACHE_SECONDS = 20
+feed_cache = {
+    "expires_at": 0,
+    "data": None
+}
 
 # =================================================================
 # 🤖 1. AIフィルター（一時的にお休み・全通し）
@@ -103,14 +109,22 @@ def get_suggestions():
 @app.get("/api/feed")
 def get_feed():
     try:
+        now = time.time()
+        if feed_cache["data"] is not None and feed_cache["expires_at"] > now:
+            return feed_cache["data"]
+
         with ThreadPoolExecutor(max_workers=2) as executor:
             suggestions_future = executor.submit(build_suggestions)
             deleted_forms_future = executor.submit(build_deleted_form_ids)
 
-            return {
+            data = {
                 "suggestions": suggestions_future.result(),
                 "deleted_form_ids": deleted_forms_future.result()
             }
+
+            feed_cache["data"] = data
+            feed_cache["expires_at"] = now + FEED_CACHE_SECONDS
+            return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -134,6 +148,7 @@ def create_suggestion(data: SuggestionInput, user: dict = Depends(get_current_us
             "liked_by": [],
             "created_at": firestore.SERVER_TIMESTAMP 
         })
+        clear_feed_cache()
         return {"status": "success", "id": new_doc_ref.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -153,6 +168,7 @@ def like_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
                 "liked_by": [user_id],
                 "created_at": firestore.SERVER_TIMESTAMP
             })
+            clear_feed_cache()
             return {"status": "liked", "likes": 1}
         else:
             raise HTTPException(status_code=404, detail="意見が見つかりません")
@@ -168,6 +184,7 @@ def like_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
         status = "liked"
         
     doc_ref.update({"liked_by": liked_by})
+    clear_feed_cache()
     return {"status": status, "likes": len(liked_by)}
 
 class DeleteRequest(BaseModel):
@@ -191,7 +208,8 @@ def delete_suggestion(req: DeleteRequest):
         else:
             # 通常の意見は今まで通りFirestoreから物理削除
             db.collection("suggestions").document(req.doc_id).delete()
-            
+
+        clear_feed_cache()
         return {"status": "success", "message": "削除処理が完了しました"}
     except Exception as e:
         print(f"削除エラー: {e}")
@@ -208,3 +226,8 @@ def get_deleted_forms():
     except Exception as e:
         print(f"リスト取得エラー: {e}")
         return []
+
+
+def clear_feed_cache():
+    feed_cache["expires_at"] = 0
+    feed_cache["data"] = None
