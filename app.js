@@ -22,7 +22,7 @@ provider.setCustomParameters({ prompt: 'select_account' });
 
 let currentUserToken = null;
 let allPosts = []; // すべての投稿データを一時保存する箱
-let isLoadingPosts = false;
+let postsRequest = null;
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxZztgHvkKfaH3WPkWEH8f9KoiBSAFNrbPFgKkbAbLnyy_-VNjhBHSfIJ04DGJraM0T/exec"; 
 const KAIRU_NORMAL_IMAGE = "kairu.png";
@@ -184,7 +184,7 @@ async function createSuggestion() {
         inputElement.value = "";
         setKairuImage(true);
         alert("投稿しました！");
-        await fetchAllPosts();
+        await fetchAllPosts({ force: true });
         showMainView();
         document.getElementById('page-view').scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
@@ -198,30 +198,28 @@ window.submitSuggestion = createSuggestion; // 💡 HTML側の submitSuggestion(
 // ==========================================
 // 📦 6. データの取得と結合（Firestore + GAS + 非表示フィルター）
 // ==========================================
-async function fetchAllPosts() {
-    if (isLoadingPosts) return;
-    isLoadingPosts = true;
+async function fetchAllPosts({ force = false } = {}) {
+    if (postsRequest && !force) return postsRequest;
+
+    postsRequest = loadAllPosts().finally(() => {
+        postsRequest = null;
+    });
+
+    return postsRequest;
+}
+
+async function loadAllPosts() {
     setDashboardStatus("読み込み中です。");
 
     try {
-        // ① Pythonから通常の意見を取得
-        const res = await fetch("/api/suggestions");
-        if (!res.ok) throw new Error("投稿一覧を取得できませんでした");
-        const suggestions = await res.json();
+        const [feed, formData] = await Promise.all([
+            fetchJson("/api/feed", "投稿一覧を取得できませんでした"),
+            fetchJson(GAS_URL, "フォームの意見を取得できませんでした")
+        ]);
 
-        // ② GASからフォームの意見を取得
-        const gasRes = await fetch(GAS_URL);
-        if (!gasRes.ok) throw new Error("フォームの意見を取得できませんでした");
-        const formData = await gasRes.json();
-
-        // ③ 💡 Pythonから非表示（削除済み）にされたフォーム意見のIDリストを取得
-        const delRes = await fetch("/api/deleted_forms");
-        if (!delRes.ok) throw new Error("非表示リストを取得できませんでした");
-        const deletedFormIds = await delRes.json();
-
-        const suggestionList = Array.isArray(suggestions) ? suggestions : [];
+        const suggestionList = Array.isArray(feed.suggestions) ? feed.suggestions : [];
         const formList = Array.isArray(formData) ? formData : [];
-        const deletedIds = Array.isArray(deletedFormIds) ? deletedFormIds : [];
+        const deletedIds = Array.isArray(feed.deleted_form_ids) ? feed.deleted_form_ids : [];
         const formLikeMap = new Map(
             suggestionList
                 .filter(post => post.is_form_dummy)
@@ -256,9 +254,13 @@ async function fetchAllPosts() {
         allPosts = [];
         renderDashboard();
         setDashboardStatus("意見を読み込めませんでした。時間をおいてもう一度試してください。");
-    } finally {
-        isLoadingPosts = false;
     }
+}
+
+async function fetchJson(url, errorMessage) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(errorMessage);
+    return response.json();
 }
 // ==========================================
 // 🎨 7. ダッシュボードの描画（3ジャンル）
@@ -359,7 +361,7 @@ window.likeSuggestion = async function(id) {
         if (!response.ok) throw new Error("いいねに失敗しました");
         
         // 再取得して画面を更新（詳細画面にいる場合は詳細画面をキープ）
-        await fetchAllPosts();
+        await fetchAllPosts({ force: true });
         
         if (!document.getElementById('page-detail').hidden) {
             // 現在のタイトルからカテゴリを逆算して再描画

@@ -2,13 +2,12 @@ import os
 import json
 import urllib.request
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
-from pydantic import BaseModel
-from fastapi import HTTPException
 
 
 app = FastAPI()
@@ -64,30 +63,54 @@ def get_current_user(authorization: Optional[str] = Header(None)):
 # =================================================================
 # 🛣️ 4. APIエンドポイント
 # =================================================================
+def build_suggestions():
+    docs = db.collection("suggestions").stream()
+    suggestions = []
+
+    for doc in docs:
+        data = doc.to_dict()
+        liked_by = data.get("liked_by", [])
+
+        created_at = data.get("created_at")
+        timestamp = created_at.timestamp() * 1000 if created_at else 0
+
+        suggestions.append({
+            "id": doc.id,
+            "text": data.get("text", ""),
+            "likes": len(liked_by),
+            "created_at": timestamp,
+            "is_form_dummy": data.get("is_form_dummy", False)
+        })
+
+    return sorted(suggestions, key=lambda x: x["likes"], reverse=True)
+
+
+def build_deleted_form_ids():
+    docs = db.collection("deleted_forms").stream()
+    return [doc.id for doc in docs]
+
 
 # --- 意見一覧を取得する ---
 @app.get("/api/suggestions")
 def get_suggestions():
     try:
-        docs = db.collection("suggestions").stream()
-        suggestions = []
-        
-        for doc in docs:
-            data = doc.to_dict()
-            liked_by = data.get("liked_by", [])
-            
-            created_at = data.get("created_at")
-            timestamp = created_at.timestamp() * 1000 if created_at else 0
-            
-            suggestions.append({
-                "id": doc.id,
-                "text": data.get("text", ""),
-                "likes": len(liked_by),
-                "created_at": timestamp,
-                "is_form_dummy": data.get("is_form_dummy", False)
-            })
-            
-        return sorted(suggestions, key=lambda x: x["likes"], reverse=True)
+        return build_suggestions()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- カード初期表示用: 投稿一覧と非表示フォームIDをまとめて取得する ---
+@app.get("/api/feed")
+def get_feed():
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            suggestions_future = executor.submit(build_suggestions)
+            deleted_forms_future = executor.submit(build_deleted_form_ids)
+
+            return {
+                "suggestions": suggestions_future.result(),
+                "deleted_form_ids": deleted_forms_future.result()
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -181,8 +204,7 @@ def delete_suggestion(req: DeleteRequest):
 def get_deleted_forms():
     try:
         # deleted_forms コレクションにあるドキュメントのID（form-xxxx）をすべて集めて返す
-        docs = db.collection("deleted_forms").stream()
-        return [doc.id for doc in docs]
+        return build_deleted_form_ids()
     except Exception as e:
         print(f"リスト取得エラー: {e}")
         return []
