@@ -1,6 +1,10 @@
 import os
 import hashlib
+import json
 import secrets
+import subprocess
+import sys
+import tempfile
 import time
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Header, Depends, Request
@@ -21,6 +25,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 FEED_CACHE_SECONDS = 20
+BOT_TIMEOUT_SECONDS = 2
+BOT_MAX_CODE_BYTES = 20000
+BOT_MAX_EVENT_BOTS = 5
+APP_VERSION = "2026.05.31-dev-api-bots"
+APP_CHANGELOG = [
+    "開発者用目安箱を追加しました。",
+    "ログイン済み開発者向けの外部API tokenを発行できるようにしました。",
+    "Hylang botをアップロードして、意見・いいね・コメントのイベントを受け取れるようにしました。",
+    "コメント取得と管理画面の投稿者名表示を修正しました。",
+]
 feed_cache = {
     "expires_at": 0,
     "data": None
@@ -221,6 +235,128 @@ def get_external_api_user(request: Request, authorization: str = Header(None)):
         "email": data.get("user_email") or ""
     }
 
+def validate_hy_bot_code(code: str):
+    if not code or not code.strip():
+        raise HTTPException(status_code=400, detail="Hylangコードが空です")
+    if len(code.encode("utf-8")) > BOT_MAX_CODE_BYTES:
+        raise HTTPException(status_code=400, detail="Hylangコードが大きすぎます")
+
+    lowered = code.lower()
+    blocked_tokens = [
+        "(import",
+        "(require",
+        "__",
+        "eval",
+        "exec",
+        "compile",
+        "open",
+        "subprocess",
+        "socket",
+        "requests",
+        "urllib",
+        "pathlib",
+        "shutil",
+        "os.",
+        "sys.",
+        "builtins",
+        "globals",
+        "locals",
+        "vars",
+    ]
+    for token in blocked_tokens:
+        if token in lowered:
+            raise HTTPException(status_code=400, detail=f"使用できない構文が含まれています: {token}")
+
+def run_hy_bot_code(code: str, event: dict):
+    validate_hy_bot_code(code)
+    runner_path = os.path.join(os.path.dirname(__file__), "hy_runner.py")
+
+    with tempfile.NamedTemporaryFile("w", suffix=".hy", delete=False, encoding="utf-8") as bot_file:
+        bot_file.write(code)
+        bot_path = bot_file.name
+
+    try:
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+            "MEYASUBAKO_EVENT": json.dumps(event, ensure_ascii=False),
+        }
+        completed = subprocess.run(
+            [sys.executable, runner_path, bot_path],
+            capture_output=True,
+            text=True,
+            timeout=BOT_TIMEOUT_SECONDS,
+            env=env,
+            cwd=tempfile.gettempdir(),
+        )
+        stdout = completed.stdout.strip()
+        stderr = completed.stderr.strip()
+
+        parsed_output = None
+        if stdout:
+            last_line = stdout.splitlines()[-1]
+            try:
+                parsed_output = json.loads(last_line)
+            except json.JSONDecodeError:
+                parsed_output = {"text": stdout[:1000]}
+
+        return {
+            "ok": completed.returncode == 0,
+            "returncode": completed.returncode,
+            "output": parsed_output,
+            "stdout": stdout[:2000],
+            "stderr": stderr[:2000],
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "returncode": None,
+            "output": None,
+            "stdout": "",
+            "stderr": "Bot execution timed out",
+        }
+    finally:
+        try:
+            os.remove(bot_path)
+        except OSError:
+            pass
+
+def serialize_bot_doc(data: dict):
+    return {
+        "enabled": data.get("enabled", False),
+        "has_code": bool(data.get("code")),
+        "code": data.get("code", ""),
+        "last_error": data.get("last_error", ""),
+        "last_output": data.get("last_output"),
+        "last_event_type": data.get("last_event_type", ""),
+    }
+
+def dispatch_bot_event(event: dict):
+    try:
+        docs = get_db().collection("developer_bots").where("enabled", "==", True).limit(BOT_MAX_EVENT_BOTS).stream()
+        for doc in docs:
+            bot = doc.to_dict()
+            developer = get_db().collection("developers").document(doc.id).get()
+            developer_data = developer.to_dict() if developer.exists else {}
+            if not developer_data.get("developer_mode_enabled", False):
+                continue
+
+            result = run_hy_bot_code(bot.get("code", ""), event)
+            update = {
+                "last_run_at": firestore.SERVER_TIMESTAMP,
+                "last_event_type": event.get("type", ""),
+                "last_output": result.get("output"),
+                "last_error": "" if result["ok"] else result.get("stderr", "Bot execution failed"),
+            }
+            doc.reference.set(update, merge=True)
+            doc.reference.collection("runs").add({
+                "event": event,
+                "result": result,
+                "created_at": firestore.SERVER_TIMESTAMP,
+            })
+    except Exception as e:
+        print(f"Hylang bot dispatch error: {e}")
+
 # =================================================================
 # 📦 4. データ構造（リクエストの形）
 # =================================================================
@@ -242,6 +378,13 @@ class DeveloperModeRequest(BaseModel):
     enabled: bool
 
 class DeveloperTokenStatusRequest(BaseModel):
+    enabled: bool
+
+class DeveloperBotRequest(BaseModel):
+    code: str
+    enabled: bool = True
+
+class DeveloperBotStatusRequest(BaseModel):
     enabled: bool
 
 class DeleteRequest(BaseModel):
@@ -299,6 +442,16 @@ def get_suggestions():
     except Exception as e:
         print(f"一覧取得エラー: {e}")
         raise HTTPException(status_code=500, detail="データベースの読み込みに失敗しました")
+
+@app.get("/api/version")
+def get_version():
+    return {
+        "status": "success",
+        "data": {
+            "version": APP_VERSION,
+            "changes": APP_CHANGELOG
+        }
+    }
 
 # --- Googleフォーム合体版フィード ---
 @app.get("/api/feed")
@@ -400,6 +553,81 @@ def update_developer_token_status(req: DeveloperTokenStatusRequest, user: dict =
     data = doc_ref.get().to_dict()
     return {"status": "success", "data": serialize_developer_doc(data)}
 
+# --- 開発者用: Hylang bot取得 ---
+@app.get("/api/developer/bot")
+def get_developer_bot(user: dict = Depends(get_current_user)):
+    profile = get_user_profile(user)
+    doc = get_db().collection("developer_bots").document(profile["uid"]).get()
+    if not doc.exists:
+        return {"status": "success", "data": {"enabled": False, "has_code": False, "code": ""}}
+    return {"status": "success", "data": serialize_bot_doc(doc.to_dict())}
+
+# --- 開発者用: Hylang botアップロード ---
+@app.post("/api/developer/bot")
+def upload_developer_bot(req: DeveloperBotRequest, user: dict = Depends(get_current_user)):
+    validate_hy_bot_code(req.code)
+    profile = get_user_profile(user)
+    developer_doc = get_db().collection("developers").document(profile["uid"]).get()
+    developer_data = developer_doc.to_dict() if developer_doc.exists else {}
+    if not developer_data.get("developer_mode_enabled", False):
+        raise HTTPException(status_code=403, detail="開発者モードを有効にしてください")
+
+    doc_ref = get_db().collection("developer_bots").document(profile["uid"])
+    doc_ref.set({
+        "code": req.code,
+        "enabled": req.enabled,
+        "user_name": profile["name"],
+        "user_email": profile["email"],
+        "updated_at": firestore.SERVER_TIMESTAMP,
+        "last_error": "",
+    }, merge=True)
+
+    return {"status": "success", "data": serialize_bot_doc(doc_ref.get().to_dict())}
+
+# --- 開発者用: Hylang bot有効/無効切り替え ---
+@app.post("/api/developer/bot/status")
+def update_developer_bot_status(req: DeveloperBotStatusRequest, user: dict = Depends(get_current_user)):
+    profile = get_user_profile(user)
+    doc_ref = get_db().collection("developer_bots").document(profile["uid"])
+    doc = doc_ref.get()
+    if req.enabled and (not doc.exists or not doc.to_dict().get("code")):
+        raise HTTPException(status_code=400, detail="先にHylang botをアップロードしてください")
+
+    doc_ref.set({
+        "enabled": req.enabled,
+        "updated_at": firestore.SERVER_TIMESTAMP,
+    }, merge=True)
+    return {"status": "success", "data": serialize_bot_doc(doc_ref.get().to_dict())}
+
+# --- 開発者用: Hylang botテスト実行 ---
+@app.post("/api/developer/bot/test")
+def test_developer_bot(user: dict = Depends(get_current_user)):
+    profile = get_user_profile(user)
+    doc = get_db().collection("developer_bots").document(profile["uid"]).get()
+    if not doc.exists or not doc.to_dict().get("code"):
+        raise HTTPException(status_code=400, detail="先にHylang botをアップロードしてください")
+
+    event = {
+        "type": "bot_test",
+        "created_at": int(time.time() * 1000),
+        "actor": {
+            "uid": profile["uid"],
+            "name": profile["name"],
+            "email": profile["email"],
+        },
+        "data": {
+            "message": "Hylang bot test event"
+        }
+    }
+    result = run_hy_bot_code(doc.to_dict().get("code", ""), event)
+    doc.reference.set({
+        "last_run_at": firestore.SERVER_TIMESTAMP,
+        "last_event_type": event["type"],
+        "last_output": result.get("output"),
+        "last_error": "" if result["ok"] else result.get("stderr", "Bot execution failed"),
+    }, merge=True)
+    return {"status": "success", "data": result}
+
 # --- 外部API: 意見取得 ---
 @app.get("/api/external/suggestions")
 def external_get_suggestions(
@@ -442,6 +670,17 @@ def external_create_suggestion(
         "source": "external_api"
     })
     clear_feed_cache()
+    dispatch_bot_event({
+        "type": "suggestion_created",
+        "source": "external_api",
+        "suggestion_id": doc_ref.id,
+        "created_at": int(time.time() * 1000),
+        "actor": api_user,
+        "data": {
+            "text": text,
+            "status": "検討中"
+        }
+    })
     return {"status": "success", "id": doc_ref.id}
 
 # --- 外部API: いいね取得 ---
@@ -491,7 +730,19 @@ def external_like_suggestion(
 
     clear_feed_cache()
     updated = doc_ref.get().to_dict()
-    return {"status": status, "likes": len(updated.get("liked_by", []))}
+    likes = len(updated.get("liked_by", []))
+    dispatch_bot_event({
+        "type": "like_changed",
+        "source": "external_api",
+        "suggestion_id": suggestion_id,
+        "created_at": int(time.time() * 1000),
+        "actor": api_user,
+        "data": {
+            "status": status,
+            "likes": likes
+        }
+    })
+    return {"status": status, "likes": likes}
 
 # --- 外部API: コメント取得 ---
 @app.get("/api/external/suggestions/{suggestion_id}/comments")
@@ -546,6 +797,17 @@ def external_add_comment(
         "created_at": firestore.SERVER_TIMESTAMP,
         "source": "external_api"
     })
+    dispatch_bot_event({
+        "type": "comment_created",
+        "source": "external_api",
+        "suggestion_id": suggestion_id,
+        "comment_id": comment_ref.id,
+        "created_at": int(time.time() * 1000),
+        "actor": api_user,
+        "data": {
+            "text": text
+        }
+    })
     return {"status": "success", "id": comment_ref.id}
 
 # --- 意見を投稿する ---
@@ -559,7 +821,8 @@ def create_suggestion(req: SuggestionRequest, user: dict = Depends(get_current_u
     
     try:
         profile = get_user_profile(user)
-        get_db().collection("suggestions").add({
+        doc_ref = get_db().collection("suggestions").document()
+        doc_ref.set({
             "text": req.text,
             "liked_by": [],
             "created_at": firestore.SERVER_TIMESTAMP,
@@ -570,7 +833,18 @@ def create_suggestion(req: SuggestionRequest, user: dict = Depends(get_current_u
             "user_email": profile["email"]
         })
         clear_feed_cache()
-        return {"status": "success"}
+        dispatch_bot_event({
+            "type": "suggestion_created",
+            "source": "web",
+            "suggestion_id": doc_ref.id,
+            "created_at": int(time.time() * 1000),
+            "actor": profile,
+            "data": {
+                "text": req.text,
+                "status": "検討中"
+            }
+        })
+        return {"status": "success", "id": doc_ref.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -606,7 +880,20 @@ def like_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
         status = "liked"
         
     clear_feed_cache()
-    return {"status": status}
+    updated = doc_ref.get().to_dict()
+    likes = len(updated.get("liked_by", []))
+    dispatch_bot_event({
+        "type": "like_changed",
+        "source": "web",
+        "suggestion_id": suggestion_id,
+        "created_at": int(time.time() * 1000),
+        "actor": get_user_profile(user),
+        "data": {
+            "status": status,
+            "likes": likes
+        }
+    })
+    return {"status": status, "likes": likes}
 
 # --- コメントを追加する ---
 @app.post("/api/suggestions/{suggestion_id}/comments")
@@ -619,13 +906,25 @@ def add_comment(suggestion_id: str, req: CommentRequest, user: dict = Depends(ge
     
     try:
         profile = get_user_profile(user)
-        get_db().collection("suggestions").document(suggestion_id).collection("comments").add({
+        comment_ref = get_db().collection("suggestions").document(suggestion_id).collection("comments").document()
+        comment_ref.set({
             "text": req.text,
             "user_id": profile["uid"],
             "user_name": profile["name"],
             "created_at": firestore.SERVER_TIMESTAMP
         })
-        return {"status": "success"}
+        dispatch_bot_event({
+            "type": "comment_created",
+            "source": "web",
+            "suggestion_id": suggestion_id,
+            "comment_id": comment_ref.id,
+            "created_at": int(time.time() * 1000),
+            "actor": profile,
+            "data": {
+                "text": req.text
+            }
+        })
+        return {"status": "success", "id": comment_ref.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

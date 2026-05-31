@@ -181,6 +181,10 @@
             margin-top: 10px;
         }
 
+        .wide-textarea {
+            min-height: 220px;
+        }
+
         .endpoint {
             display: flex;
             gap: 10px;
@@ -293,6 +297,27 @@
                 <div class="endpoint"><span class="method">POST</span><code>/api/external/suggestions/{id}/comments</code></div>
             </div>
         </section>
+
+        <section class="panel">
+            <h2>Hylang Bot</h2>
+            <p class="muted">意見投稿、いいね変更、コメント追加のイベントで実行されます。<code>event</code> 変数を読み、<code>(respond {...})</code> でJSON結果を返せます。</p>
+            <div class="row">
+                <div>
+                    <p>Bot 状態</p>
+                    <p id="bot-last" class="muted">未設定</p>
+                </div>
+                <span class="status"><span id="bot-dot" class="dot"></span><span id="bot-status">OFF</span></span>
+            </div>
+            <textarea id="bot-code" class="wide-textarea" spellcheck="false">(setv event-type (get event "type"))
+(respond {"handled" event-type "ok" True})</textarea>
+            <div class="actions">
+                <button id="bot-upload-btn" class="primary" type="button" disabled>アップロード</button>
+                <button id="bot-on-btn" type="button" disabled>有効化</button>
+                <button id="bot-off-btn" class="danger" type="button" disabled>無効化</button>
+                <button id="bot-test-btn" type="button" disabled>テスト実行</button>
+            </div>
+            <textarea id="bot-output" readonly placeholder="テスト結果や最終実行結果を表示します。"></textarea>
+        </section>
     </main>
 
     <script type="module">
@@ -327,7 +352,7 @@
         }
 
         function setControls(enabled) {
-            ["mode-on-btn", "mode-off-btn", "generate-btn", "token-on-btn", "token-off-btn"].forEach((id) => {
+            ["mode-on-btn", "mode-off-btn", "generate-btn", "token-on-btn", "token-off-btn", "bot-upload-btn", "bot-on-btn", "bot-off-btn", "bot-test-btn"].forEach((id) => {
                 $(id).disabled = !enabled;
             });
             $("copy-btn").disabled = !lastToken;
@@ -367,6 +392,23 @@
             renderStatus(json.data);
         }
 
+        function renderBot(data) {
+            const enabled = data?.enabled;
+            $("bot-status").textContent = enabled ? "ON" : "OFF";
+            $("bot-last").textContent = data?.has_code ? `最終イベント: ${data.last_event_type || "なし"}` : "未設定";
+            setDot("bot-dot", enabled);
+            if (data?.code) $("bot-code").value = data.code;
+            $("bot-output").value = JSON.stringify({
+                last_output: data?.last_output || null,
+                last_error: data?.last_error || ""
+            }, null, 2);
+        }
+
+        async function loadBot() {
+            const json = await requestJson("/api/developer/bot");
+            renderBot(json.data);
+        }
+
         async function updateMode(enabled) {
             const json = await requestJson("/api/developer/mode", {
                 method: "POST",
@@ -394,6 +436,31 @@
             setMessage(enabled ? "API tokenを有効にしました。" : "API tokenを無効にしました。");
         }
 
+        async function uploadBot() {
+            const json = await requestJson("/api/developer/bot", {
+                method: "POST",
+                body: JSON.stringify({ code: $("bot-code").value, enabled: true })
+            });
+            renderBot(json.data);
+            setMessage("Hylang botをアップロードしました。");
+        }
+
+        async function updateBot(enabled) {
+            const json = await requestJson("/api/developer/bot/status", {
+                method: "POST",
+                body: JSON.stringify({ enabled })
+            });
+            renderBot(json.data);
+            setMessage(enabled ? "Hylang botを有効にしました。" : "Hylang botを無効にしました。");
+        }
+
+        async function testBot() {
+            const json = await requestJson("/api/developer/bot/test", { method: "POST" });
+            $("bot-output").value = JSON.stringify(json.data, null, 2);
+            setMessage("Hylang botをテスト実行しました。");
+            await loadBot();
+        }
+
         $("login-btn").addEventListener("click", () => signInWithPopup(auth, provider).catch((e) => setMessage(e.message)));
         $("logout-btn").addEventListener("click", () => signOut(auth));
         $("mode-on-btn").addEventListener("click", () => updateMode(true).catch((e) => setMessage(e.message)));
@@ -401,6 +468,10 @@
         $("generate-btn").addEventListener("click", () => generateToken().catch((e) => setMessage(e.message)));
         $("token-on-btn").addEventListener("click", () => updateToken(true).catch((e) => setMessage(e.message)));
         $("token-off-btn").addEventListener("click", () => updateToken(false).catch((e) => setMessage(e.message)));
+        $("bot-upload-btn").addEventListener("click", () => uploadBot().catch((e) => setMessage(e.message)));
+        $("bot-on-btn").addEventListener("click", () => updateBot(true).catch((e) => setMessage(e.message)));
+        $("bot-off-btn").addEventListener("click", () => updateBot(false).catch((e) => setMessage(e.message)));
+        $("bot-test-btn").addEventListener("click", () => testBot().catch((e) => setMessage(e.message)));
         $("copy-btn").addEventListener("click", async () => {
             await navigator.clipboard.writeText(lastToken);
             setMessage("API tokenをコピーしました。");
@@ -417,12 +488,14 @@
             if (!user) {
                 $("user-info").textContent = "未ログイン";
                 renderStatus({});
+                renderBot({});
                 return;
             }
 
             $("user-info").textContent = `${user.displayName || "名前なし"} / ${user.email || "メールなし"}`;
             try {
                 await loadStatus();
+                await loadBot();
             } catch (e) {
                 setMessage(e.message);
             }
