@@ -86,6 +86,59 @@ def get_current_user(authorization: str = Header(None)):
         print(f"トークン検証エラー: {e}")
         raise HTTPException(status_code=401, detail="無効なトークンです")
 
+def get_identity_email(user: dict) -> str:
+    email = user.get("email", "")
+    if email:
+        return email
+
+    identities = user.get("firebase", {}).get("identities", {})
+    emails = identities.get("email", [])
+    if emails:
+        return emails[0]
+
+    return ""
+
+def get_user_profile(user: dict):
+    uid = user.get("uid", "")
+    name = user.get("name") or user.get("display_name") or user.get("displayName") or ""
+    email = get_identity_email(user)
+
+    if uid and (not name or not email):
+        try:
+            user_record = auth.get_user(uid)
+            name = name or user_record.display_name or ""
+            email = email or user_record.email or ""
+        except Exception as e:
+            print(f"ユーザー情報取得エラー: {e}")
+
+    if not name and email:
+        name = email.split("@")[0]
+
+    return {
+        "uid": uid,
+        "name": name or "匿名",
+        "email": email or ""
+    }
+
+def get_author_from_doc(data: dict):
+    name = data.get("user_name") or ""
+    email = data.get("user_email") or ""
+    uid = data.get("user_id") or ""
+
+    if uid and (not name or name in ("不明", "匿名") or not email):
+        profile = get_user_profile({
+            "uid": uid,
+            "name": name if name not in ("不明", "匿名") else "",
+            "email": email
+        })
+        name = profile["name"]
+        email = profile["email"]
+
+    return {
+        "name": name or "不明",
+        "email": email or "不明"
+    }
+
 # =================================================================
 # 📦 4. データ構造（リクエストの形）
 # =================================================================
@@ -184,15 +237,16 @@ def create_suggestion(req: SuggestionRequest, user: dict = Depends(get_current_u
         raise HTTPException(status_code=400, detail="不適切な表現が含まれているため、投稿できません。")
     
     try:
+        profile = get_user_profile(user)
         get_db().collection("suggestions").add({
             "text": req.text,
             "liked_by": [],
             "created_at": firestore.SERVER_TIMESTAMP,
             "is_form_dummy": False,
             "status": "検討中",
-            "user_id": user["uid"],
-            "user_name": user.get("name", "匿名"),
-            "user_email": user.get("email", "")
+            "user_id": profile["uid"],
+            "user_name": profile["name"],
+            "user_email": profile["email"]
         })
         clear_feed_cache()
         return {"status": "success"}
@@ -243,10 +297,11 @@ def add_comment(suggestion_id: str, req: CommentRequest, user: dict = Depends(ge
         raise HTTPException(status_code=400, detail="不適切な表現が含まれているため、投稿できません。")
     
     try:
+        profile = get_user_profile(user)
         get_db().collection("suggestions").document(suggestion_id).collection("comments").add({
             "text": req.text,
-            "user_id": user["uid"],
-            "user_name": user.get("name", "匿名"),
+            "user_id": profile["uid"],
+            "user_name": profile["name"],
             "created_at": firestore.SERVER_TIMESTAMP
         })
         return {"status": "success"}
@@ -328,6 +383,7 @@ def get_admin_suggestions(req: AdminAuthRequest):
         d = doc.to_dict()
         created_at = d.get("created_at")
         timestamp = created_at.timestamp() * 1000 if created_at else 0
+        author = get_author_from_doc(d)
         
         suggestions.append({
             "id": doc.id,
@@ -336,8 +392,8 @@ def get_admin_suggestions(req: AdminAuthRequest):
             "created_at": timestamp,
             "is_form_dummy": d.get("is_form_dummy", False),
             "status": d.get("status", "検討中"),
-            "user_name": d.get("user_name", "不明"),
-            "user_email": d.get("user_email", "不明")
+            "user_name": author["name"],
+            "user_email": author["email"]
         })
         
     return {"status": "success", "data": suggestions}
