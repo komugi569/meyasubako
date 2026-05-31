@@ -449,3 +449,11 @@ window.submitComment = async function(postId) {
         alert("通信エラーが発生しました");
     }
 }
+
+// ==========================================
+// 🛡️ ユーティリティ（セキュリティ用の文字無害化処理）
+// ==========================================
+function escapeHtml(str) {
+    if (!str) return "";
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
