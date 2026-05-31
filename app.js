@@ -21,8 +21,7 @@ const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: 'select_account' });
 
 let currentUserToken = null;
-let allPosts = []; // すべての投稿データを一時保存する箱
-let postsRequest = null;
+let allPosts = []; 
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxZztgHvkKfaH3WPkWEH8f9KoiBSAFNrbPFgKkbAbLnyy_-VNjhBHSfIJ04DGJraM0T/exec"; 
 const KAIRU_NORMAL_IMAGE = "kairu.png";
@@ -34,21 +33,18 @@ const KAIRU_REPLY_TEXT = "知りません";
 // 🖱️ 2. イベントリスナーの設定
 // ==========================================
 document.addEventListener("DOMContentLoaded", () => {
-    // ログイン・ログアウトボタンが存在する場合のみイベントを登録
     const loginBtn = document.getElementById("login-btn");
     const logoutBtn = document.getElementById("logout-btn");
     if(loginBtn) loginBtn.addEventListener("click", login);
     if(logoutBtn) logoutBtn.addEventListener("click", logout);
 
-    // 投稿ボタンと入力欄
-    document.getElementById("submit-btn").addEventListener("click", createSuggestion);
-    const suggestionInput = document.getElementById("suggestion-input") || document.getElementById("suggestionText");
+    const submitBtn = document.getElementById("submit-btn");
+    if(submitBtn) submitBtn.addEventListener("click", createSuggestion);
+    
+    const suggestionInput = document.getElementById("suggestion-input");
     if(suggestionInput) {
         suggestionInput.addEventListener("input", () => setKairuImage(false));
     }
-
-    updatePostHelper();
-    initKairuFooterAvoidance();
 });
 
 function setKairuImage(isReply) {
@@ -56,20 +52,6 @@ function setKairuImage(isReply) {
     const kairuTextbox = document.getElementById("kairu-textbox");
     if (kairuImage) kairuImage.src = isReply ? KAIRU_REPLY_IMAGE : KAIRU_NORMAL_IMAGE;
     if (kairuTextbox) kairuTextbox.innerText = isReply ? KAIRU_REPLY_TEXT : KAIRU_NORMAL_TEXT;
-}
-
-function initKairuFooterAvoidance() {
-    const kairuAssistant = document.querySelector(".kairu-assistant");
-    const footer = document.querySelector(".site-footer");
-
-    if (!kairuAssistant || !footer || !("IntersectionObserver" in window)) return;
-
-    const observer = new IntersectionObserver((entries) => {
-        const isFooterVisible = entries.some(entry => entry.isIntersecting);
-        kairuAssistant.classList.toggle("is-above-footer", isFooterVisible);
-    }, { threshold: 0.01 });
-
-    observer.observe(footer);
 }
 
 // ==========================================
@@ -82,41 +64,20 @@ onAuthStateChanged(auth, async (user) => {
 
     if (user) {
         currentUserToken = await user.getIdToken();
-        if(loginBtn) loginBtn.hidden = true;
+        if(loginBtn) loginBtn.style.display = "none";
         if(userInfo) {
             userInfo.hidden = false;
             userInfo.innerText = `ログイン中: ${user.displayName}さん`;
         }
-        if(logoutBtn) logoutBtn.hidden = false;
+        if(logoutBtn) logoutBtn.style.display = "inline";
     } else {
         currentUserToken = null;
-        if(loginBtn) loginBtn.hidden = false;
-        if(userInfo) {
-            userInfo.hidden = true;
-            userInfo.innerText = "";
-        }
-        if(logoutBtn) logoutBtn.hidden = true;
+        if(loginBtn) loginBtn.style.display = "inline";
+        if(userInfo) userInfo.hidden = true;
+        if(logoutBtn) logoutBtn.style.display = "none";
     }
-    updatePostHelper();
-    // ログイン状態が確定したらデータを取得
-    fetchAllPosts();
+    loadAllPosts({ force: true });
 });
-
-function updatePostHelper() {
-    const helper = document.getElementById("post-helper");
-    const submitBtn = document.getElementById("submit-btn");
-
-    if (helper) {
-        helper.textContent = currentUserToken
-            ? "ログイン済みです。内容を確認して送信できます。"
-            : "投稿にはログインが必要です。";
-        helper.classList.toggle("is-ready", Boolean(currentUserToken));
-    }
-
-    if (submitBtn) {
-        submitBtn.disabled = !currentUserToken;
-    }
-}
 
 async function login() {
     try {
@@ -138,17 +99,21 @@ async function logout() {
 }
 
 // ==========================================
-// 🔄 4. 画面切り替え処理
+// 🔄 4. 画面（タブ）切り替え処理
 // ==========================================
-function showMainView() {
-    document.getElementById('page-post').hidden = false;
-    document.getElementById('page-view').hidden = false;
-    document.getElementById('page-detail').hidden = true;
+window.switchTab = function(tabName) {
+    document.getElementById('page-post').hidden = (tabName !== 'post');
+    document.getElementById('page-view').hidden = (tabName !== 'view');
+    document.getElementById('page-detail').hidden = true; 
+
+    if (tabName === 'view') {
+        loadAllPosts({ force: true });
+    }
 }
 
 window.backToDashboard = function() {
-    showMainView();
-    document.getElementById('page-view').scrollIntoView({ behavior: "smooth", block: "start" });
+    document.getElementById('page-detail').hidden = true;
+    document.getElementById('page-view').hidden = false;
 }
 
 // ==========================================
@@ -157,7 +122,7 @@ window.backToDashboard = function() {
 async function createSuggestion() {
     if (!currentUserToken) return alert("意見を投稿するにはログインが必要です！");
 
-    const inputElement = document.getElementById("suggestion-input") || document.getElementById("suggestionText");
+    const inputElement = document.getElementById("suggestion-input");
     const submitBtn = document.getElementById("submit-btn");
     const text = inputElement.value.trim();
     
@@ -184,135 +149,90 @@ async function createSuggestion() {
         inputElement.value = "";
         setKairuImage(true);
         alert("投稿しました！");
-        await fetchAllPosts({ force: true });
-        showMainView();
-        document.getElementById('page-view').scrollIntoView({ behavior: "smooth", block: "start" });
+        window.switchTab('view'); 
     } catch (error) {
         alert(error.message);
     } finally {
-        submitBtn.innerText = "送信する";
-        updatePostHelper();
+        setTimeout(() => {
+            submitBtn.disabled = false;
+            submitBtn.innerText = "投稿する";
+        }, 10000); 
     }
 }
-window.submitSuggestion = createSuggestion; // 💡 HTML側の submitSuggestion() と名前を合わせる
+window.submitSuggestion = createSuggestion;
+
 // ==========================================
-// 📦 6. データの取得と結合（Firestore + GAS + 非表示フィルター）
+// 📦 6. データの取得と結合
 // ==========================================
-async function fetchAllPosts({ force = false } = {}) {
-    if (postsRequest && !force) return postsRequest;
-
-    postsRequest = loadAllPosts().finally(() => {
-        postsRequest = null;
-    });
-
-    return postsRequest;
-}
-
-async function loadAllPosts() {
-    setDashboardStatus("読み込み中です。");
-
+async function loadAllPosts(options = { force: false }) {
     try {
-        const gasRequest = fetchJson(GAS_URL, "フォームの意見を取得できませんでした");
-        const feed = await fetchJson("/api/feed", "投稿一覧を取得できませんでした");
+        const url = options.force ? "/api/feed" : "/api/feed";
+        const res = await fetch(url);
+        const feedData = await res.json();
 
-        const suggestionList = Array.isArray(feed.suggestions) ? feed.suggestions : [];
-        const deletedIds = Array.isArray(feed.deleted_form_ids) ? feed.deleted_form_ids : [];
-        const formLikeMap = new Map(
-            suggestionList
-                .filter(post => post.is_form_dummy)
-                .map(post => [post.id, post.likes || 0])
-        );
-        const normalSuggestions = suggestionList.filter(post => !post.is_form_dummy);
+        const suggestions = feedData.suggestions || [];
+        const deletedFormIds = feedData.deleted_form_ids || [];
 
-        allPosts = normalSuggestions.filter(post => !deletedIds.includes(post.id));
-        renderDashboard();
-        setDashboardStatus(allPosts.length ? `${allPosts.length}件の意見を表示しています。フォーム投稿を確認中です。` : "フォーム投稿を確認中です。");
+        const gasRes = await fetch(GAS_URL);
+        const formData = await gasRes.json();
 
-        let formData = [];
-        try {
-            formData = await gasRequest;
-        } catch (error) {
-            console.warn("フォーム意見の取得に失敗しました:", error);
-            setDashboardStatus(allPosts.length ? `${allPosts.length}件の意見を表示しています。フォーム投稿は後で再読み込みしてください。` : "フォーム投稿を読み込めませんでした。");
-            return;
-        }
-
-        const formList = Array.isArray(formData) ? formData : [];
-
-        // ④ フォームデータを整形（💡 IDをタイムスタンプ基準にして絶対にズレないように安定化！）
-        const formSuggestions = formList.map((item, idx) => {
+        const formSuggestions = formData.map((item, idx) => {
             const timeId = item.timestamp ? new Date(item.timestamp).getTime() : idx;
-            const id = `form-${timeId}`;
             return {
-                id: id,
+                id: `form-${timeId}`,
                 text: item.content,
-                likes: formLikeMap.get(id) || 0,
+                likes: 0, 
                 isForm: true,
                 created_at: item.timestamp ? new Date(item.timestamp).getTime() : 0 
             };
         });
 
-        // ⑤ 通常の意見とフォームの意見を合体
-        const combined = normalSuggestions.concat(formSuggestions);
+        // フォーム用「いいね数」の上書き同期
+        formSuggestions.forEach(f => {
+            const match = suggestions.find(s => s.id === f.id);
+            if (match) {
+                f.likes = match.likes;
+                f.status = match.status;
+            }
+        });
+
+        let combined = suggestions.concat(formSuggestions);
+        allPosts = combined.filter(post => !deletedFormIds.includes(post.id));
         
-        // ⑥ 💡 フィルターをかけて、非表示リストに入っているIDの投稿を除外（間引く）する！
-        allPosts = combined.filter(post => !deletedIds.includes(post.id));
-        
-        // 画面に描画
         renderDashboard();
-        setDashboardStatus(allPosts.length ? `${allPosts.length}件の意見を表示しています。` : "");
     } catch (error) {
         console.error("データ取得エラー:", error);
-        allPosts = [];
-        renderDashboard();
-        setDashboardStatus("意見を読み込めませんでした。時間をおいてもう一度試してください。");
     }
 }
 
-async function fetchJson(url, errorMessage) {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(errorMessage);
-    return response.json();
-}
 // ==========================================
 // 🎨 7. ダッシュボードの描画（3ジャンル）
 // ==========================================
 function renderDashboard() {
-    // 👑 人気順（いいね数降順）
-    const popular = [...allPosts].sort((a, b) => b.likes - a.likes);
-    
-    // ✨ 新着順（時間降順）
+    const popular = [...allPosts].sort((a, b) => (b.likes || 0) - (a.likes || 0));
     const newest = [...allPosts].sort((a, b) => b.created_at - a.created_at);
-
-    // 🔥 話題順（現在は人気順と同じ「いいね数降順」）
-    const trending = [...allPosts].sort((a, b) => b.likes - a.likes);
+    const trending = [...allPosts].sort((a, b) => (b.likes || 0) - (a.likes || 0));
 
     renderPostCards(popular.slice(0, 3), 'popular-top3');
     renderPostCards(newest.slice(0, 3), 'newest-top3');
     renderPostCards(trending.slice(0, 3), 'trending-top3');
 }
 
-function setDashboardStatus(message) {
-    const status = document.getElementById("dashboard-status");
-    if (status) status.textContent = message;
-}
-
-// 🔍 もっと表示する
 window.showCategoryDetail = function(category, titleText) {
-    document.getElementById('page-post').hidden = true;
     document.getElementById('page-view').hidden = true;
     document.getElementById('page-detail').hidden = false;
     document.getElementById('detail-title').textContent = titleText;
 
     let targetPosts = [];
-    if (category === 'popular') targetPosts = [...allPosts].sort((a, b) => b.likes - a.likes);
+    if (category === 'popular') targetPosts = [...allPosts].sort((a, b) => (b.likes || 0) - (a.likes || 0));
     if (category === 'newest')  targetPosts = [...allPosts].sort((a, b) => b.created_at - a.created_at);
-   if (category === 'trending') targetPosts = [...allPosts].sort((a, b) => b.likes - a.likes);
+    if (category === 'trending') targetPosts = [...allPosts].sort((a, b) => (b.likes || 0) - (a.likes || 0));
+
     renderPostCards(targetPosts, 'detail-list');
 }
 
 // ==========================================
-// 🖨️ カードの生成処理（ボタン左下固定レイアウト）
+// 🖨️ 8. カードの生成処理（ボタン左下固定レイアウト）
 // ==========================================
 function renderPostCards(posts, containerId) {
     const container = document.getElementById(containerId);
@@ -322,8 +242,6 @@ function renderPostCards(posts, containerId) {
     posts.forEach(post => {
         const card = document.createElement("div");
         card.className = "post-card";
-        
-        // 💡 カード自体を縦並び（Flexbox）にして、高さをカード内でいっぱいに広げる
         card.style.display = "flex";
         card.style.flexDirection = "column";
         card.style.height = "100%";
@@ -345,9 +263,7 @@ function renderPostCards(posts, containerId) {
                 ${badgeHtml}
                 ${statusHtml}
             </div>
-            
             <p style="margin-top: 8px; font-size: 15px; line-height: 1.4; flex-grow: 1;">${escapeHtml(post.text)}</p>
-            
             <div style="display: flex; gap: 10px; margin-top: auto; padding-top: 15px;">
                 <button class="like-btn" onclick="likeSuggestion('${post.id}')">❤️ ${post.likes || 0}</button>
                 <button class="like-btn" onclick="toggleComments('${post.id}')">💬 コメント</button>
@@ -365,7 +281,6 @@ function renderPostCards(posts, containerId) {
     });
 }
 
-
 // ==========================================
 // ❤️ 9. いいね！処理
 // ==========================================
@@ -375,30 +290,28 @@ window.likeSuggestion = async function(id) {
     try {
         const response = await fetch(`/api/suggestions/${id}/like`, {
             method: "POST",
-            headers: {
-                "Authorization": `Bearer ${currentUserToken}`
-            }
+            headers: { "Authorization": `Bearer ${currentUserToken}` }
         });
 
         if (!response.ok) throw new Error("いいねに失敗しました");
         
-        // 再取得して画面を更新（詳細画面にいる場合は詳細画面をキープ）
-        await fetchAllPosts({ force: true });
+        await loadAllPosts({ force: true });
         
         if (!document.getElementById('page-detail').hidden) {
-            // 現在のタイトルからカテゴリを逆算して再描画
             const title = document.getElementById('detail-title').textContent;
             let cat = 'newest';
             if(title.includes('人気')) cat = 'popular';
             if(title.includes('話題')) cat = 'trending';
-            showCategoryDetail(cat, title);
+            window.showCategoryDetail(cat, title);
         }
     } catch (error) {
         console.error(error);
     }
 }
 
-// 💬 コメントエリアの開閉と読み込み
+// ==========================================
+// 💬 10. コメント制御
+// ==========================================
 window.toggleComments = async function(postId) {
     const area = document.getElementById(`comments-${postId}`);
     if (area.style.display === "none") {
@@ -409,7 +322,6 @@ window.toggleComments = async function(postId) {
     }
 }
 
-// 💬 コメントのリアルタイム読み込み処理
 async function loadComments(postId) {
     const listContainer = document.getElementById(`list-comments-${postId}`);
     listContainer.innerHTML = "<span style='color:#888;'>読み込み中...</span>";
@@ -432,9 +344,7 @@ async function loadComments(postId) {
     }
 }
 
-// 💬 コメントの送信処理（トークン切れバグ修正版）
 window.submitComment = async function(postId) {
-    // 💡 常に「今の」ユーザー状態を取得する
     const user = auth.currentUser;
     if (!user) return alert("コメントをするにはログインが必要です！");
     
@@ -443,9 +353,7 @@ window.submitComment = async function(postId) {
     if (!text) return;
 
     try {
-        // 💡 送信するその瞬間に、最新のトークン（証明書）を取得し直す（これで時間が経ってもエラーにならない！）
-        const freshToken = await user.getIdToken(true);
-        
+        const freshToken = await user.getIdToken(true); // 最新トークンを再取得
         const res = await fetch(`/api/suggestions/${postId}/comments`, {
             method: "POST",
             headers: {
@@ -457,7 +365,7 @@ window.submitComment = async function(postId) {
         
         if (res.ok) {
             input.value = "";
-            await loadComments(postId); // コメント欄を更新
+            await loadComments(postId); 
         } else {
             alert("コメントの送信に失敗しました");
         }
@@ -465,9 +373,8 @@ window.submitComment = async function(postId) {
         alert("通信エラーが発生しました");
     }
 }
-// ==========================================
-// 🛡️ ユーティリティ（セキュリティ用の文字無害化処理）
-// ==========================================
+
+// 🛡️ ユーティリティ
 function escapeHtml(str) {
     if (!str) return "";
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
