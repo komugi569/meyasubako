@@ -28,6 +28,25 @@ const KAIRU_NORMAL_IMAGE = "kairu.png";
 const KAIRU_REPLY_IMAGE = "kairu_excel.png";
 const KAIRU_NORMAL_TEXT = "何かお困りのことはありますか？";
 const KAIRU_REPLY_TEXT = "知りません";
+
+async function readJsonResponse(response, label) {
+    const text = await response.text();
+    let data;
+
+    try {
+        data = text ? JSON.parse(text) : null;
+    } catch (e) {
+        const preview = text ? text.slice(0, 120) : "empty response";
+        throw new Error(`${label}がJSON以外を返しました (${response.status}): ${preview}`);
+    }
+
+    if (!response.ok) {
+        const detail = data?.detail || data?.message || response.statusText || "request failed";
+        throw new Error(`${label}の取得に失敗しました (${response.status}): ${detail}`);
+    }
+
+    return data;
+}
 // ==========================================
 // 🖱️ 2. イベントリスナーの設定（サイレントバグ修正版）
 // ==========================================
@@ -243,16 +262,14 @@ async function loadAllPosts(options = { force: false }) {
         const url = options.force ? "/api/feed?force=1" : "/api/feed";
         
         // 💡 爆速化の魔法：VercelとGASに「同時」にデータを取りに行かせる（Promise.all）
-        const [res, gasRes] = await Promise.all([
-            fetch(url),
-            fetch(GAS_URL)
+        const [feedData, gasData] = await Promise.all([
+            fetch(url).then(res => readJsonResponse(res, "APIフィード")),
+            fetch(GAS_URL).then(res => readJsonResponse(res, "Googleフォーム"))
         ]);
 
-        const feedData = await res.json();
-        const formData = await gasRes.json();
-
-        const suggestions = feedData.suggestions || [];
-        const deletedFormIds = feedData.deleted_form_ids || [];
+        const suggestions = Array.isArray(feedData) ? feedData : (feedData?.suggestions || feedData?.data || []);
+        const deletedFormIds = feedData?.deleted_form_ids || [];
+        const formData = Array.isArray(gasData) ? gasData : (gasData?.data || []);
 
         const formSuggestions = formData.map((item, idx) => {
             const timeId = item.timestamp ? new Date(item.timestamp).getTime() : idx;

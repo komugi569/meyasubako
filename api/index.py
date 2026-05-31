@@ -1,9 +1,5 @@
 import os
-import json
-import urllib.request
-import urllib.error
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
@@ -38,28 +34,39 @@ def is_safe_with_ai(text: str) -> bool:
 # =================================================================
 # 🔥 2. Firebase / Firestore の初期化
 # =================================================================
-if not firebase_admin._apps:
-    if "FIREBASE_PROJECT_ID" in os.environ:
+db = None
+
+def build_firebase_credential():
+    if all(key in os.environ for key in ("FIREBASE_PROJECT_ID", "FIREBASE_PRIVATE_KEY", "FIREBASE_CLIENT_EMAIL")):
         private_key = os.environ["FIREBASE_PRIVATE_KEY"].replace("\\n", "\n")
-        cred = credentials.Certificate({
+        cred_dict = {
             "type": "service_account",
             "project_id": os.environ["FIREBASE_PROJECT_ID"],
-            "private_key_id": os.environ["FIREBASE_PRIVATE_KEY_ID"],
             "private_key": private_key,
             "client_email": os.environ["FIREBASE_CLIENT_EMAIL"],
-            "client_id": os.environ["FIREBASE_CLIENT_ID"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": os.environ["FIREBASE_CLIENT_CERT_URL"],
-            "universe_domain": "googleapis.com"
-        })
-    else:
-        cred = credentials.Certificate("meyasubako-23797-firebase-adminsdk-h18i7-66487e4115.json")
+        }
+        return credentials.Certificate(cred_dict)
 
-    firebase_admin.initialize_app(cred)
+    for path in ("firebase-key.json", "meyasubako-23797-firebase-adminsdk-h18i7-66487e4115.json"):
+        if os.path.exists(path):
+            return credentials.Certificate(path)
 
-db = firestore.client()
+    raise RuntimeError("Firebaseの認証情報が見つかりません")
+
+def get_db():
+    global db
+    if db is not None:
+        return db
+
+    try:
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(build_firebase_credential())
+        db = firestore.client()
+        return db
+    except Exception as e:
+        print(f"Firebase初期化エラー: {e}")
+        raise HTTPException(status_code=500, detail="Firebaseの初期化に失敗しました")
 
 # =================================================================
 # 🛡️ 3. 認証用ミドルウェア（ログインユーザーを判定する）
@@ -70,8 +77,11 @@ def get_current_user(authorization: str = Header(None)):
     
     token = authorization.split("Bearer ")[1]
     try:
+        get_db()
         decoded_token = auth.verify_id_token(token)
         return decoded_token
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"トークン検証エラー: {e}")
         raise HTTPException(status_code=401, detail="無効なトークンです")
@@ -105,7 +115,8 @@ class AdminAuthRequest(BaseModel):
 
 # データを組み立てる関数（最新200件に制限してパフォーマンス低下を防ぐ）
 def build_suggestions():
-    docs = db.collection("suggestions").order_by("created_at", direction=firestore.Query.DESCENDING).limit(200).stream()
+    database = get_db()
+    docs = database.collection("suggestions").order_by("created_at", direction=firestore.Query.DESCENDING).limit(200).stream()
     suggestions = []
     
     for doc in docs:
@@ -128,8 +139,9 @@ def build_suggestions():
     return sorted(suggestions, key=lambda x: x["likes"], reverse=True)
 
 def build_deleted_form_ids():
-    deleted_docs = db.collection("deleted_forms").stream()
-    return {doc.id for doc in deleted_docs}
+    database = get_db()
+    deleted_docs = database.collection("deleted_forms").stream()
+    return [doc.id for doc in deleted_docs]
 
 # --- 意見一覧を取得（一般向け） ---
 @app.get("/api/suggestions")
@@ -143,50 +155,23 @@ def get_suggestions():
 
 # --- Googleフォーム合体版フィード ---
 @app.get("/api/feed")
-def get_feed():
+def get_feed(force: Optional[int] = 0):
     global feed_cache
     now = time.time()
-    if feed_cache["data"] and now < feed_cache["expires_at"]:
-        return {"status": "success", "data": feed_cache["data"]}
+    if not force and feed_cache["data"] and now < feed_cache["expires_at"]:
+        return feed_cache["data"]
 
     try:
-        def fetch_forms():
-            url = "https://script.google.com/macros/s/AKfycbyw72m32l3QhFh9k8Y-z6x789Qc-4x3-3x3x3x3x3x3x3x3x/exec"
-            try:
-                req = urllib.request.Request(url)
-                with urllib.request.urlopen(req) as res:
-                    body = res.read().decode('utf-8')
-                    parsed = json.loads(body)
-                    return parsed.get("data", [])
-            except Exception as e:
-                print("GAS fetch error:", e)
-                return []
-
-        def fetch_firestore():
-            return build_suggestions()
-
-        def fetch_deleted():
-            return build_deleted_form_ids()
-
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            future_forms = executor.submit(fetch_forms)
-            future_db = executor.submit(fetch_firestore)
-            future_del = executor.submit(fetch_deleted)
-
-            form_data = future_forms.result()
-            db_data = future_db.result()
-            deleted_ids = future_del.result()
-
-        filtered_forms = [item for item in form_data if item["id"] not in deleted_ids]
-
-        combined = db_data + filtered_forms
-        combined.sort(key=lambda x: x.get("likes", 0), reverse=True)
-
-        feed_cache["data"] = combined
+        data = {
+            "suggestions": build_suggestions(),
+            "deleted_form_ids": build_deleted_form_ids()
+        }
+        feed_cache["data"] = data
         feed_cache["expires_at"] = now + FEED_CACHE_SECONDS
 
-        return {"status": "success", "data": combined}
+        return data
     except Exception as e:
+        print(f"フィード取得エラー: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- 意見を投稿する ---
@@ -199,7 +184,7 @@ def create_suggestion(req: SuggestionRequest, user: dict = Depends(get_current_u
         raise HTTPException(status_code=400, detail="不適切な表現が含まれているため、投稿できません。")
     
     try:
-        db.collection("suggestions").add({
+        get_db().collection("suggestions").add({
             "text": req.text,
             "liked_by": [],
             "created_at": firestore.SERVER_TIMESTAMP,
@@ -218,7 +203,7 @@ def create_suggestion(req: SuggestionRequest, user: dict = Depends(get_current_u
 @app.post("/api/suggestions/{suggestion_id}/like")
 def like_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
     user_id = user["uid"]
-    doc_ref = db.collection("suggestions").document(suggestion_id)
+    doc_ref = get_db().collection("suggestions").document(suggestion_id)
     doc = doc_ref.get()
     
     if not doc.exists:
@@ -258,7 +243,7 @@ def add_comment(suggestion_id: str, req: CommentRequest, user: dict = Depends(ge
         raise HTTPException(status_code=400, detail="不適切な表現が含まれているため、投稿できません。")
     
     try:
-        db.collection("suggestions").document(suggestion_id).collection("comments").add({
+        get_db().collection("suggestions").document(suggestion_id).collection("comments").add({
             "text": req.text,
             "user_id": user["uid"],
             "user_name": user.get("name", "匿名"),
@@ -272,7 +257,7 @@ def add_comment(suggestion_id: str, req: CommentRequest, user: dict = Depends(ge
 @app.get("/api/suggestions/{doc_id}/comments")
 def get_comments(doc_id: str):
     try:
-        docs = db.collection("suggestions").document(doc_id).collection("comments").order_by("created_at").stream()
+        docs = get_db().collection("suggestions").document(doc_id).collection("comments").order_by("created_at").stream()
         comments = []
         for doc in docs:
             d = doc.to_dict()
@@ -296,16 +281,16 @@ def delete_suggestion(req: DeleteRequest):
         
     try:
         if req.doc_id.startswith("form-"):
-            db.collection("deleted_forms").document(req.doc_id).set({
+            get_db().collection("deleted_forms").document(req.doc_id).set({
                 "deleted_at": firestore.SERVER_TIMESTAMP
             })
         else:
             # 修正: サブコレクション(comments)の削除によるゴミデータ防止
-            comments_ref = db.collection("suggestions").document(req.doc_id).collection("comments").stream()
+            comments_ref = get_db().collection("suggestions").document(req.doc_id).collection("comments").stream()
             for comment in comments_ref:
                 comment.reference.delete()
             # 親ドキュメントの削除
-            db.collection("suggestions").document(req.doc_id).delete()
+            get_db().collection("suggestions").document(req.doc_id).delete()
 
         clear_feed_cache()
         return {"status": "success", "message": "削除処理が完了しました"}
@@ -321,7 +306,7 @@ def update_suggestion_status(doc_id: str, req: StatusRequest):
         raise HTTPException(status_code=403, detail="パスワードが違います")
         
     try:
-        db.collection("suggestions").document(doc_id).update({
+        get_db().collection("suggestions").document(doc_id).update({
             "status": req.status
         })
         clear_feed_cache()
@@ -337,7 +322,7 @@ def get_admin_suggestions(req: AdminAuthRequest):
     if not admin_pass or req.password != admin_pass:
         raise HTTPException(status_code=403, detail="パスワードが違います")
     
-    docs = db.collection("suggestions").order_by("created_at", direction=firestore.Query.DESCENDING).stream()
+    docs = get_db().collection("suggestions").order_by("created_at", direction=firestore.Query.DESCENDING).stream()
     suggestions = []
     for doc in docs:
         d = doc.to_dict()
@@ -364,7 +349,7 @@ def get_deleted_forms(password: str):
     if not admin_pass or password != admin_pass:
         raise HTTPException(status_code=403, detail="パスワードが違います")
     
-    docs = db.collection("deleted_forms").stream()
+    docs = get_db().collection("deleted_forms").stream()
     return {"status": "success", "data": [doc.id for doc in docs]}
 
 def clear_feed_cache():
