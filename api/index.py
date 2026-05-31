@@ -10,7 +10,18 @@ from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI()
+
+# 💡 以下のおまじないを追加（どんな環境からの通信もブロックせずに許可する設定）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 FEED_CACHE_SECONDS = 20
 feed_cache = {
     "expires_at": 0,

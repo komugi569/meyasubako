@@ -130,14 +130,17 @@ window.backToDashboard = function() {
     document.getElementById('page-detail').hidden = true;
     document.getElementById('page-view').hidden = false;
 }
+
 // ==========================================
-// 📡 5. 新しい意見の投稿（HTML変更に強い版）
+// 📡 5. 新しい意見の投稿（絶対クラッシュしない完全防御版）
 // ==========================================
 async function createSuggestion() {
-    if (!currentUserToken) return alert("意見を投稿するにはログインが必要です！");
+    // 💡 currentUserToken ではなく、その瞬間のユーザー状態を確実に取得する
+    const user = auth.currentUser;
+    if (!user) return alert("意見を投稿するにはログインが必要です！");
 
     const inputElement = document.getElementById("suggestion-input") || document.querySelector("textarea");
-    const submitBtn = document.getElementById("submit-btn") || document.querySelector(".submit-btn");
+    const submitBtn = document.getElementById("submit-btn");
     const text = inputElement ? inputElement.value.trim() : "";
     
     if (!text) return alert("意見を入力してください");
@@ -148,36 +151,89 @@ async function createSuggestion() {
     }
 
     try {
+        // 💡 常に「最新の」証明書（トークン）を発行し直してサーバーに送る
+        const freshToken = await user.getIdToken(true);
+        
         const response = await fetch("/api/suggestions", {
             method: "POST",
             headers: { 
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${currentUserToken}`
+                "Authorization": `Bearer ${freshToken}`
             },
             body: JSON.stringify({ text: text })
         });
 
+        // 💡 サーバーエラー時に自爆（クラッシュ）しないように安全に読み取る
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || "投稿に失敗しました");
+            let errorMsg = "サーバーエラーが発生しました";
+            try {
+                const errorData = await response.json();
+                errorMsg = errorData.detail || errorMsg;
+            } catch(e) {
+                console.error("エラー解析失敗（HTMLが返却されました）:", e);
+            }
+            throw new Error(errorMsg);
         }
 
         if (inputElement) inputElement.value = "";
-        setKairuImage(true);
+        if (typeof setKairuImage === "function") setKairuImage(true);
         alert("投稿しました！");
         window.switchTab('view'); 
     } catch (error) {
-        alert(error.message);
+        console.error("投稿エラー詳細:", error);
+        alert("エラー: " + error.message);
     } finally {
         if (submitBtn) {
             setTimeout(() => {
                 submitBtn.disabled = false;
                 submitBtn.innerText = "投稿する";
-            }, 5000); // 💡 クールダウンを5秒に短縮
+            }, 3000); // 3秒でボタンを復活させる
         }
     }
 }
 window.submitSuggestion = createSuggestion;
+
+
+// ==========================================
+// 💬 コメントの送信処理（絶対クラッシュしない完全防御版）
+// ==========================================
+window.submitComment = async function(postId) {
+    const user = auth.currentUser;
+    if (!user) return alert("コメントをするにはログインが必要です！");
+    
+    const input = document.getElementById(`input-comments-${postId}`);
+    const text = input.value.trim();
+    if (!text) return;
+
+    try {
+        // 💡 ここでも常に最新のトークンを発行
+        const freshToken = await user.getIdToken(true); 
+        const res = await fetch(`/api/suggestions/${postId}/comments`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${freshToken}`
+            },
+            body: JSON.stringify({ text: text })
+        });
+        
+        if (res.ok) {
+            input.value = "";
+            await loadComments(postId); 
+        } else {
+            // 💡 クラッシュ防止の安全読み取り
+            let errorMsg = "コメントの送信に失敗しました";
+            try {
+                const err = await res.json();
+                errorMsg = err.detail || errorMsg;
+            } catch(e) {}
+            alert("エラー: " + errorMsg);
+        }
+    } catch (e) {
+        console.error("コメント通信エラー:", e);
+        alert("通信エラーが発生しました");
+    }
+}
 
 // ==========================================
 // 📦 6. データの取得と結合（並列処理で爆速化）
