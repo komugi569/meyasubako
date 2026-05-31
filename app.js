@@ -55,6 +55,21 @@ if (document.readyState === "loading") {
 }
 
 // ==========================================
+// 🐸 カエル（kairu）の画像・セリフ切り替え
+// ==========================================
+function setKairuImage(isReply) {
+    const kairuImage = document.getElementById("kairu-image");
+    const kairuTextbox = document.getElementById("kairu-textbox");
+    
+    // 画像やテキストボックスが存在するときだけ処理する
+    if (kairuImage) {
+        kairuImage.src = isReply ? KAIRU_REPLY_IMAGE : KAIRU_NORMAL_IMAGE;
+    }
+    if (kairuTextbox) {
+        kairuTextbox.innerText = isReply ? KAIRU_REPLY_TEXT : KAIRU_NORMAL_TEXT;
+    }
+}
+// ==========================================
 // 🔐 3. 認証（ログイン・ログアウト）処理
 // ==========================================
 onAuthStateChanged(auth, async (user) => {
