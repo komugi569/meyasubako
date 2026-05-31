@@ -1,7 +1,9 @@
 import os
+import hashlib
+import secrets
 import time
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
@@ -23,6 +25,7 @@ feed_cache = {
     "expires_at": 0,
     "data": None
 }
+rate_limit_store = {}
 
 # =================================================================
 # 🤖 1. AIフィルター（一時的にお休み・全通し）
@@ -139,6 +142,85 @@ def get_author_from_doc(data: dict):
         "email": email or "不明"
     }
 
+def get_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+def check_rate_limit(request: Request, bucket: str, max_requests: int, window_seconds: int):
+    now = time.time()
+    ip = get_client_ip(request)
+    key = f"{bucket}:{ip}"
+    hits = [hit for hit in rate_limit_store.get(key, []) if now - hit < window_seconds]
+
+    if len(hits) >= max_requests:
+        retry_after = max(1, int(window_seconds - (now - hits[0])))
+        raise HTTPException(
+            status_code=429,
+            detail=f"リクエストが多すぎます。{retry_after}秒後に再試行してください"
+        )
+
+    hits.append(now)
+    rate_limit_store[key] = hits
+
+    if len(rate_limit_store) > 1000:
+        for stored_key, stored_hits in list(rate_limit_store.items()):
+            fresh_hits = [hit for hit in stored_hits if now - hit < 3600]
+            if fresh_hits:
+                rate_limit_store[stored_key] = fresh_hits
+            else:
+                rate_limit_store.pop(stored_key, None)
+
+def hash_api_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+def mask_api_token(token: str) -> str:
+    if not token:
+        return ""
+    return f"{token[:10]}...{token[-4:]}"
+
+def serialize_developer_doc(data: dict):
+    return {
+        "developer_mode_enabled": data.get("developer_mode_enabled", False),
+        "token_enabled": data.get("token_enabled", False),
+        "has_token": bool(data.get("token_hash")),
+        "token_preview": data.get("token_preview", ""),
+        "user_name": data.get("user_name", ""),
+        "user_email": data.get("user_email", "")
+    }
+
+def get_external_api_user(request: Request, authorization: str = Header(None)):
+    check_rate_limit(request, "external_auth", 240, 60)
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="API tokenがありません")
+
+    raw_token = authorization.split("Bearer ", 1)[1].strip()
+    if not raw_token:
+        raise HTTPException(status_code=401, detail="API tokenがありません")
+
+    token_hash = hash_api_token(raw_token)
+    docs = get_db().collection("developers").where("token_hash", "==", token_hash).limit(1).stream()
+    developer_doc = next(docs, None)
+
+    if not developer_doc:
+        raise HTTPException(status_code=401, detail="API tokenが無効です")
+
+    data = developer_doc.to_dict()
+    if not data.get("developer_mode_enabled", False):
+        raise HTTPException(status_code=403, detail="開発者モードが無効です")
+    if not data.get("token_enabled", False):
+        raise HTTPException(status_code=403, detail="API tokenが無効化されています")
+
+    return {
+        "uid": developer_doc.id,
+        "name": data.get("user_name") or "開発者",
+        "email": data.get("user_email") or ""
+    }
+
 # =================================================================
 # 📦 4. データ構造（リクエストの形）
 # =================================================================
@@ -149,6 +231,18 @@ class SuggestionRequest(BaseModel):
 
 class CommentRequest(BaseModel):
     text: str
+
+class ExternalSuggestionRequest(BaseModel):
+    text: str
+
+class ExternalCommentRequest(BaseModel):
+    text: str
+
+class DeveloperModeRequest(BaseModel):
+    enabled: bool
+
+class DeveloperTokenStatusRequest(BaseModel):
+    enabled: bool
 
 class DeleteRequest(BaseModel):
     doc_id: str
@@ -226,6 +320,233 @@ def get_feed(force: Optional[int] = 0):
     except Exception as e:
         print(f"フィード取得エラー: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- 開発者用: 状態取得 ---
+@app.get("/api/developer/status")
+def get_developer_status(user: dict = Depends(get_current_user)):
+    profile = get_user_profile(user)
+    doc_ref = get_db().collection("developers").document(profile["uid"])
+    doc = doc_ref.get()
+
+    if not doc.exists:
+        return {
+            "status": "success",
+            "data": {
+                "developer_mode_enabled": False,
+                "token_enabled": False,
+                "has_token": False,
+                "token_preview": "",
+                "user_name": profile["name"],
+                "user_email": profile["email"]
+            }
+        }
+
+    data = doc.to_dict()
+    return {"status": "success", "data": serialize_developer_doc(data)}
+
+# --- 開発者用: 開発者モード切り替え ---
+@app.post("/api/developer/mode")
+def update_developer_mode(req: DeveloperModeRequest, user: dict = Depends(get_current_user)):
+    profile = get_user_profile(user)
+    doc_ref = get_db().collection("developers").document(profile["uid"])
+    doc_ref.set({
+        "developer_mode_enabled": req.enabled,
+        "user_name": profile["name"],
+        "user_email": profile["email"],
+        "updated_at": firestore.SERVER_TIMESTAMP
+    }, merge=True)
+
+    data = doc_ref.get().to_dict()
+    return {"status": "success", "data": serialize_developer_doc(data)}
+
+# --- 開発者用: token発行 ---
+@app.post("/api/developer/token/generate")
+def generate_developer_token(user: dict = Depends(get_current_user)):
+    profile = get_user_profile(user)
+    raw_token = f"meyasu_{secrets.token_urlsafe(32)}"
+    doc_ref = get_db().collection("developers").document(profile["uid"])
+    doc_ref.set({
+        "developer_mode_enabled": True,
+        "token_enabled": True,
+        "token_hash": hash_api_token(raw_token),
+        "token_preview": mask_api_token(raw_token),
+        "user_name": profile["name"],
+        "user_email": profile["email"],
+        "updated_at": firestore.SERVER_TIMESTAMP
+    }, merge=True)
+
+    data = doc_ref.get().to_dict()
+    payload = serialize_developer_doc(data)
+    payload["token"] = raw_token
+    return {"status": "success", "data": payload}
+
+# --- 開発者用: token有効/無効切り替え ---
+@app.post("/api/developer/token/status")
+def update_developer_token_status(req: DeveloperTokenStatusRequest, user: dict = Depends(get_current_user)):
+    profile = get_user_profile(user)
+    doc_ref = get_db().collection("developers").document(profile["uid"])
+    doc = doc_ref.get()
+
+    if req.enabled and (not doc.exists or not doc.to_dict().get("token_hash")):
+        raise HTTPException(status_code=400, detail="先にAPI tokenを発行してください")
+
+    doc_ref.set({
+        "token_enabled": req.enabled,
+        "user_name": profile["name"],
+        "user_email": profile["email"],
+        "updated_at": firestore.SERVER_TIMESTAMP
+    }, merge=True)
+
+    data = doc_ref.get().to_dict()
+    return {"status": "success", "data": serialize_developer_doc(data)}
+
+# --- 外部API: 意見取得 ---
+@app.get("/api/external/suggestions")
+def external_get_suggestions(
+    request: Request,
+    limit: Optional[int] = 100,
+    api_user: dict = Depends(get_external_api_user)
+):
+    check_rate_limit(request, "external_read", 180, 60)
+    suggestions = build_suggestions()
+    safe_limit = min(max(limit or 100, 1), 200)
+    return {"status": "success", "data": suggestions[:safe_limit]}
+
+# --- 外部API: 意見投稿 ---
+@app.post("/api/external/suggestions")
+def external_create_suggestion(
+    req: ExternalSuggestionRequest,
+    request: Request,
+    api_user: dict = Depends(get_external_api_user)
+):
+    check_rate_limit(request, "external_write", 30, 600)
+    text = req.text.strip()
+
+    if not text:
+        raise HTTPException(status_code=400, detail="テキストが空です")
+    if len(text) > 2000:
+        raise HTTPException(status_code=400, detail="テキストが長すぎます")
+    if not is_safe_with_ai(text):
+        raise HTTPException(status_code=400, detail="不適切な表現が含まれているため、投稿できません。")
+
+    doc_ref = get_db().collection("suggestions").document()
+    doc_ref.set({
+        "text": text,
+        "liked_by": [],
+        "created_at": firestore.SERVER_TIMESTAMP,
+        "is_form_dummy": False,
+        "status": "検討中",
+        "user_id": f"developer:{api_user['uid']}",
+        "user_name": api_user["name"],
+        "user_email": api_user["email"],
+        "source": "external_api"
+    })
+    clear_feed_cache()
+    return {"status": "success", "id": doc_ref.id}
+
+# --- 外部API: いいね取得 ---
+@app.get("/api/external/suggestions/{suggestion_id}/likes")
+def external_get_likes(
+    suggestion_id: str,
+    request: Request,
+    api_user: dict = Depends(get_external_api_user)
+):
+    check_rate_limit(request, "external_read", 180, 60)
+    doc = get_db().collection("suggestions").document(suggestion_id).get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="意見が見つかりません")
+
+    data = doc.to_dict()
+    liked_by = data.get("liked_by", [])
+    api_user_id = f"developer:{api_user['uid']}"
+    return {
+        "status": "success",
+        "data": {
+            "likes": len(liked_by),
+            "liked_by_me": api_user_id in liked_by
+        }
+    }
+
+# --- 外部API: いいね追加/解除 ---
+@app.post("/api/external/suggestions/{suggestion_id}/like")
+def external_like_suggestion(
+    suggestion_id: str,
+    request: Request,
+    api_user: dict = Depends(get_external_api_user)
+):
+    check_rate_limit(request, "external_like", 60, 600)
+    doc_ref = get_db().collection("suggestions").document(suggestion_id)
+    doc = doc_ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="意見が見つかりません")
+
+    api_user_id = f"developer:{api_user['uid']}"
+    liked_by = doc.to_dict().get("liked_by", [])
+    if api_user_id in liked_by:
+        doc_ref.update({"liked_by": firestore.ArrayRemove([api_user_id])})
+        status = "unliked"
+    else:
+        doc_ref.update({"liked_by": firestore.ArrayUnion([api_user_id])})
+        status = "liked"
+
+    clear_feed_cache()
+    updated = doc_ref.get().to_dict()
+    return {"status": status, "likes": len(updated.get("liked_by", []))}
+
+# --- 外部API: コメント取得 ---
+@app.get("/api/external/suggestions/{suggestion_id}/comments")
+def external_get_comments(
+    suggestion_id: str,
+    request: Request,
+    api_user: dict = Depends(get_external_api_user)
+):
+    check_rate_limit(request, "external_read", 180, 60)
+    suggestion = get_db().collection("suggestions").document(suggestion_id).get()
+    if not suggestion.exists:
+        raise HTTPException(status_code=404, detail="意見が見つかりません")
+
+    docs = suggestion.reference.collection("comments").order_by("created_at").stream()
+    comments = []
+    for doc in docs:
+        d = doc.to_dict()
+        comments.append({
+            "id": doc.id,
+            "text": d.get("text", ""),
+            "user_name": d.get("user_name", "匿名")
+        })
+    return {"status": "success", "data": comments}
+
+# --- 外部API: コメント追加 ---
+@app.post("/api/external/suggestions/{suggestion_id}/comments")
+def external_add_comment(
+    suggestion_id: str,
+    req: ExternalCommentRequest,
+    request: Request,
+    api_user: dict = Depends(get_external_api_user)
+):
+    check_rate_limit(request, "external_comment", 60, 600)
+    text = req.text.strip()
+
+    if not text:
+        raise HTTPException(status_code=400, detail="テキストが空です")
+    if len(text) > 1000:
+        raise HTTPException(status_code=400, detail="コメントが長すぎます")
+    if not is_safe_with_ai(text):
+        raise HTTPException(status_code=400, detail="不適切な表現が含まれているため、投稿できません。")
+
+    suggestion_ref = get_db().collection("suggestions").document(suggestion_id)
+    if not suggestion_ref.get().exists:
+        raise HTTPException(status_code=404, detail="意見が見つかりません")
+
+    comment_ref = suggestion_ref.collection("comments").document()
+    comment_ref.set({
+        "text": text,
+        "user_id": f"developer:{api_user['uid']}",
+        "user_name": api_user["name"],
+        "created_at": firestore.SERVER_TIMESTAMP,
+        "source": "external_api"
+    })
+    return {"status": "success", "id": comment_ref.id}
 
 # --- 意見を投稿する ---
 @app.post("/api/suggestions")
