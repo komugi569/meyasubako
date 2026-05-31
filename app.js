@@ -28,11 +28,10 @@ const KAIRU_NORMAL_IMAGE = "kairu.png";
 const KAIRU_REPLY_IMAGE = "kairu_excel.png";
 const KAIRU_NORMAL_TEXT = "何かお困りのことはありますか？";
 const KAIRU_REPLY_TEXT = "知りません";
-
 // ==========================================
-// 🖱️ 2. イベントリスナーの設定
+// 🖱️ 2. イベントリスナーの設定（サイレントバグ修正版）
 // ==========================================
-document.addEventListener("DOMContentLoaded", () => {
+function initApp() {
     const loginBtn = document.getElementById("login-btn");
     const logoutBtn = document.getElementById("logout-btn");
     if(loginBtn) loginBtn.addEventListener("click", login);
@@ -41,17 +40,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const submitBtn = document.getElementById("submit-btn");
     if(submitBtn) submitBtn.addEventListener("click", createSuggestion);
     
-    const suggestionInput = document.getElementById("suggestion-input");
+    // 💡 HTMLの変更に強いように、IDがなくても textarea を探すように強化
+    const suggestionInput = document.getElementById("suggestion-input") || document.querySelector("textarea");
     if(suggestionInput) {
         suggestionInput.addEventListener("input", () => setKairuImage(false));
     }
-});
+}
 
-function setKairuImage(isReply) {
-    const kairuImage = document.getElementById("kairu-image");
-    const kairuTextbox = document.getElementById("kairu-textbox");
-    if (kairuImage) kairuImage.src = isReply ? KAIRU_REPLY_IMAGE : KAIRU_NORMAL_IMAGE;
-    if (kairuTextbox) kairuTextbox.innerText = isReply ? KAIRU_REPLY_TEXT : KAIRU_NORMAL_TEXT;
+// 💡 type="module" の仕様対策：すでにDOMが読み込み終わっているかチェックしてから起動する
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initApp);
+} else {
+    initApp();
 }
 
 // ==========================================
@@ -115,21 +115,22 @@ window.backToDashboard = function() {
     document.getElementById('page-detail').hidden = true;
     document.getElementById('page-view').hidden = false;
 }
-
 // ==========================================
-// 📡 5. 新しい意見の投稿
+// 📡 5. 新しい意見の投稿（HTML変更に強い版）
 // ==========================================
 async function createSuggestion() {
     if (!currentUserToken) return alert("意見を投稿するにはログインが必要です！");
 
-    const inputElement = document.getElementById("suggestion-input");
-    const submitBtn = document.getElementById("submit-btn");
-    const text = inputElement.value.trim();
+    const inputElement = document.getElementById("suggestion-input") || document.querySelector("textarea");
+    const submitBtn = document.getElementById("submit-btn") || document.querySelector(".submit-btn");
+    const text = inputElement ? inputElement.value.trim() : "";
     
     if (!text) return alert("意見を入力してください");
 
-    submitBtn.disabled = true;
-    submitBtn.innerText = "送信中...";
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = "送信中...";
+    }
 
     try {
         const response = await fetch("/api/suggestions", {
@@ -146,35 +147,41 @@ async function createSuggestion() {
             throw new Error(errorData.detail || "投稿に失敗しました");
         }
 
-        inputElement.value = "";
+        if (inputElement) inputElement.value = "";
         setKairuImage(true);
         alert("投稿しました！");
         window.switchTab('view'); 
     } catch (error) {
         alert(error.message);
     } finally {
-        setTimeout(() => {
-            submitBtn.disabled = false;
-            submitBtn.innerText = "投稿する";
-        }, 10000); 
+        if (submitBtn) {
+            setTimeout(() => {
+                submitBtn.disabled = false;
+                submitBtn.innerText = "投稿する";
+            }, 5000); // 💡 クールダウンを5秒に短縮
+        }
     }
 }
 window.submitSuggestion = createSuggestion;
 
 // ==========================================
-// 📦 6. データの取得と結合
+// 📦 6. データの取得と結合（並列処理で爆速化）
 // ==========================================
 async function loadAllPosts(options = { force: false }) {
     try {
-        const url = options.force ? "/api/feed" : "/api/feed";
-        const res = await fetch(url);
+        const url = options.force ? "/api/feed?force=1" : "/api/feed";
+        
+        // 💡 爆速化の魔法：VercelとGASに「同時」にデータを取りに行かせる（Promise.all）
+        const [res, gasRes] = await Promise.all([
+            fetch(url),
+            fetch(GAS_URL)
+        ]);
+
         const feedData = await res.json();
+        const formData = await gasRes.json();
 
         const suggestions = feedData.suggestions || [];
         const deletedFormIds = feedData.deleted_form_ids || [];
-
-        const gasRes = await fetch(GAS_URL);
-        const formData = await gasRes.json();
 
         const formSuggestions = formData.map((item, idx) => {
             const timeId = item.timestamp ? new Date(item.timestamp).getTime() : idx;
@@ -187,7 +194,6 @@ async function loadAllPosts(options = { force: false }) {
             };
         });
 
-        // フォーム用「いいね数」の上書き同期
         formSuggestions.forEach(f => {
             const match = suggestions.find(s => s.id === f.id);
             if (match) {
@@ -204,7 +210,6 @@ async function loadAllPosts(options = { force: false }) {
         console.error("データ取得エラー:", error);
     }
 }
-
 // ==========================================
 // 🎨 7. ダッシュボードの描画（3ジャンル）
 // ==========================================

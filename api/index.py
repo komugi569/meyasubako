@@ -115,8 +115,6 @@ def get_suggestions():
         return build_suggestions()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
 # --- カード初期表示用: 投稿一覧と非表示フォームIDをまとめて取得する ---
 @app.get("/api/feed")
 def get_feed():
@@ -125,21 +123,21 @@ def get_feed():
         if feed_cache["data"] is not None and feed_cache["expires_at"] > now:
             return feed_cache["data"]
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            suggestions_future = executor.submit(build_suggestions)
-            deleted_forms_future = executor.submit(build_deleted_form_ids)
+        # 💡 Vercel環境でフリーズや遅延の原因になるスレッド処理を廃止し、シンプルに直列取得する
+        suggestions = build_suggestions()
+        deleted_forms = build_deleted_form_ids()
 
-            data = {
-                "suggestions": suggestions_future.result(),
-                "deleted_form_ids": deleted_forms_future.result()
-            }
+        data = {
+            "suggestions": suggestions,
+            "deleted_form_ids": deleted_forms
+        }
 
-            feed_cache["data"] = data
-            feed_cache["expires_at"] = now + FEED_CACHE_SECONDS
-            return data
+        feed_cache["data"] = data
+        feed_cache["expires_at"] = now + FEED_CACHE_SECONDS
+        return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 
 # --- 新しい意見を投稿する ---
 @app.post("/api/suggestions")
