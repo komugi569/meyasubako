@@ -11,197 +11,145 @@
         .bulk-delete-btn { background: #e67e22; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .bulk-delete-btn:hover { background: #d35400; }
         .post { background: #ecf0f1; color: #333; padding: 15px; margin-bottom: 10px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
-        .post-content { display: flex; align-items: center; gap: 15px; flex-grow: 1; }
-        .post-check { transform: scale(1.5); cursor: pointer; }
-        .delete-btn { background: #e74c3c; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; min-width: 80px; }
-        .delete-btn:hover { background: #c0392b; }
-        input[type="password"] { padding: 10px; width: 100%; box-sizing: border-box; margin-bottom: 20px; border-radius: 4px; border: none; }
+        .post-content { flex: 1; }
+        .post-meta { font-size: 0.85em; color: #7f8c8d; margin-top: 5px; }
+        .author-info { color: #c0392b; font-weight: bold; }
+        .actions { display: flex; gap: 10px; align-items: center; }
+        .delete-btn { background: #e74c3c; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
+        .status-select { padding: 5px; border-radius: 3px; border: 1px solid #ccc; }
+        .form-dummy { border-left: 5px solid #27ae60; }
+        .post-check { margin-right: 15px; transform: scale(1.5); cursor: pointer; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>🛡️ 管理者専用ダッシュボード</h2>
-        <p>Vercelで設定した ADMIN_PASSWORD を入力してください</p>
-        <input type="password" id="adminPass" placeholder="パスワードを入力...">
+        <h1>🛡️ 目安箱 管理者ダッシュボード</h1>
         
         <div class="control-bar">
-            <label style="cursor: pointer; font-weight: bold;">
-                <input type="checkbox" id="selectAllCheck" onchange="toggleSelectAll()" class="post-check"> 
-                すべて選択
-            </label>
-            <button class="bulk-delete-btn" onclick="deleteSelectedPosts()">🗑️ 選択した項目を一括削除</button>
+            <div>
+                <label for="adminPass">🔑 管理者パスワード:</label>
+                <input type="password" id="adminPass" placeholder="パスワードを入力">
+            </div>
+            <button class="bulk-delete-btn" type="button" onclick="deleteSelectedPosts()">🗑️ 選択した項目を一括削除</button>
         </div>
 
         <div id="admin-list">
-            <p>パスワードを入力すると一覧が同期されます</p>
+            <p>パスワードを入力すると投稿が表示されます。</p>
         </div>
     </div>
 
     <script>
-        // 💡 あなたのGASのURLをここに定義
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbxZztgHvkKfaH3WPkWEH8f9KoiBSAFNrbPFgKkbAbLnyy_-VNjhBHSfIJ04DGJraM0T/exec";
+        function escapeHtml(str) {
+            if (!str) return "";
+            return str.replace(/[&<>"']/g, function(match) {
+                const escape = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+                return escape[match];
+            });
+        }
 
-        // ==========================================
-        // 📦 投稿一覧を読み込んで表示する処理
-        // ==========================================
+        function formatDate(timestamp) {
+            if (!timestamp) return "日付不明";
+            const d = new Date(timestamp);
+            return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+        }
+
         async function loadAdminPosts() {
-            const adminList = document.getElementById("admin-list");
-            adminList.innerHTML = "<p>読み込み中...</p>";
-            
             const pass = document.getElementById("adminPass").value;
-            if (!pass) {
-                adminList.innerHTML = "<p style='color:#e74c3c;'>パスワードを入力すると一覧が同期されます</p>";
-                return;
-            }
+            const list = document.getElementById("admin-list");
+            if (!pass) return;
+
+            list.innerHTML = "<p>読み込み中...</p>";
 
             try {
-                // ① 管理者専用の、誰が書いたかがわかるAPIから意見を取得
-                const response = await fetch(`/api/admin/suggestions?password=${encodeURIComponent(pass)}`); 
-                if (!response.ok) throw new Error("パスワードが違うか、認証エラー");
-                const suggestions = await response.json();
-
-                // ② フォームの意見を取得
-                const gasRes = await fetch(GAS_URL);
-                const formData = await gasRes.json();
-
-                // ③ 非表示リストを取得
-                const delRes = await fetch("/api/deleted_forms");
-                const deletedFormIds = await delRes.json();
-
-                // ④ フォームデータの整形
-                const formSuggestions = formData.map((item, idx) => {
-                    const timeId = item.timestamp ? new Date(item.timestamp).getTime() : idx;
-                    return {
-                        id: `form-${timeId}`,
-                        text: item.content,
-                        likes: 0, 
-                        isForm: true,
-                        user_name: "Googleフォーム（外部）",
-                        user_email: "-",
-                        created_at: item.timestamp ? new Date(item.timestamp).getTime() : 0 
-                    };
-                });
-
-                // ⑤ 合体させて、非表示リストに入っていないものを抽出
-                let combined = suggestions.concat(formSuggestions);
-                const activePosts = combined.filter(post => !deletedFormIds.includes(post.id));
-
-                adminList.innerHTML = "";
-                if (activePosts.length === 0) {
-                    adminList.innerHTML = "<p>現在の投稿はありません。</p>";
+                // 修正: POSTリクエスト化し、URLからパスワードを隠蔽（CWE-598対策）
+                const url = `/api/admin/suggestions`;
+                const res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password: pass })
+            });
+                
+                if (!res.ok) {
+                    list.innerHTML = `<p style="color:#e74c3c;">エラー: パスワードが違うか、サーバーエラーです。</p>`;
                     return;
                 }
 
-                // ⑥ 画面に一覧を描画
-                activePosts.forEach(post => {
-                    const postDiv = document.createElement("div");
-                    postDiv.className = "post";
+                const json = await res.json();
+                const posts = json.data;
 
-                    const contentDiv = document.createElement("div");
-                    contentDiv.className = "post-content";
-                    contentDiv.style.flexDirection = "column"; 
-                    contentDiv.style.alignItems = "flex-start";
+                if (posts.length === 0) {
+                    list.innerHTML = "<p>投稿はありません。</p>";
+                    return;
+                }
+
+                list.innerHTML = "";
+                posts.forEach(p => {
+                    const div = document.createElement("div");
+                    div.className = `post ${p.is_form_dummy ? 'form-dummy' : ''}`;
                     
-                    const topRow = document.createElement("div");
-                    topRow.style.display = "flex";
-                    topRow.style.alignItems = "center";
-                    topRow.style.gap = "10px";
+                    const isGoogleForm = p.id.startsWith("form-");
 
-                    const checkbox = document.createElement("input");
-                    checkbox.type = "checkbox";
-                    checkbox.className = "post-check";
-                    checkbox.value = post.id; 
-
-                    const textSpan = document.createElement("span");
-                    textSpan.textContent = (post.isForm ? "【📋】 " : "【📝】 ") + post.text;
-                    
-                    topRow.appendChild(checkbox);
-                    topRow.appendChild(textSpan);
-
-                    // 🔍 投稿者の身元情報エリア
-                    const infoDiv = document.createElement("div");
-                    infoDiv.style.fontSize = "0.85em";
-                    infoDiv.style.color = "#7f8c8d";
-                    infoDiv.style.marginTop = "5px";
-                    infoDiv.style.paddingLeft = "30px";
-                    infoDiv.innerHTML = `👤 投稿者: <strong>${post.user_name || "不明"}</strong> | ✉️ メール: <code>${post.user_email || "-"}</code>`;
-
-                    contentDiv.appendChild(topRow);
-                    contentDiv.appendChild(infoDiv);
-
-                    // 🏷️ ステータス変更 ＆ 削除ボタン
-                    const rightDiv = document.createElement("div");
-                    rightDiv.style.display = "flex";
-                    rightDiv.style.gap = "10px";
-                    rightDiv.style.alignItems = "center";
-
-                    const statusSelect = document.createElement("select");
-                    statusSelect.style.padding = "5px";
-                    statusSelect.style.borderRadius = "4px";
-                    ["検討中", "対応中", "解決済み"].forEach(st => {
-                        const opt = document.createElement("option");
-                        opt.value = st;
-                        opt.textContent = st;
-                        if ((post.status || "検討中") === st) opt.selected = true;
-                        statusSelect.appendChild(opt);
-                    });
-                    statusSelect.onchange = () => updateStatus(post.id, statusSelect.value);
-
-                    const deleteBtn = document.createElement("button");
-                    deleteBtn.className = "delete-btn";
-                    deleteBtn.textContent = "🗑️ 削除";
-                    deleteBtn.onclick = () => deletePost(post.id);
-
-                    rightDiv.appendChild(statusSelect);
-                    rightDiv.appendChild(deleteBtn);
-
-                    postDiv.appendChild(contentDiv);
-                    postDiv.appendChild(rightDiv);
-                    adminList.appendChild(postDiv);
+                    div.innerHTML = `
+                        <input type="checkbox" class="post-check" value="${p.id}">
+                        <div class="post-content">
+                            <div style="font-size: 1.1em;">${escapeHtml(p.text)}</div>
+                            <div class="post-meta">
+                                ❤️ ${p.likes} | 📅 ${formatDate(p.created_at)} 
+                                ${isGoogleForm ? ' | 🟢 Googleフォーム' : ' | 🔵 Webアプリ'}
+                            </div>
+                            ${!isGoogleForm ? `
+                            <div class="author-info">
+                                👤 ${escapeHtml(p.user_name)} (${escapeHtml(p.user_email)})
+                            </div>
+                            ` : ''}
+                        </div>
+                        <div class="actions">
+                            <select class="status-select" onchange="updateStatus('${p.id}', this.value)">
+                                <option value="検討中" ${p.status === '検討中' ? 'selected' : ''}>検討中</option>
+                                <option value="対応中" ${p.status === '対応中' ? 'selected' : ''}>対応中</option>
+                                <option value="解決済" ${p.status === '解決済' ? 'selected' : ''}>解決済</option>
+                                <option value="見送り" ${p.status === '見送り' ? 'selected' : ''}>見送り</option>
+                            </select>
+                            <button class="delete-btn" type="button" onclick="deletePost('${p.id}')">削除</button>
+                        </div>
+                    `;
+                    list.appendChild(div);
                 });
 
             } catch (error) {
-                console.error("読み込みエラー:", error);
-                adminList.innerHTML = `<p style='color:#e74c3c;'>エラー: パスワードを確認するか、再入力してください。</p>`;
+                list.innerHTML = `<p style="color:#e74c3c;">通信エラーが発生しました。</p>`;
             }
         }
 
         async function updateStatus(docId, newStatus) {
             const pass = document.getElementById("adminPass").value;
             try {
-                const response = await fetch(`/api/suggestions/${docId}/status`, {
+                const res = await fetch(`/api/suggestions/${docId}/status`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ password: pass, status: newStatus })
+                    body: JSON.stringify({ status: newStatus, password: pass })
                 });
-                if (response.ok) {
-                    alert(`ステータスを「${newStatus}」に更新しました！`);
-                } else {
-                    alert("ステータスの更新に失敗しました。");
-                }
-            } catch (error) {
+                if (!res.ok) alert("ステータスの更新に失敗しました。");
+            } catch(e) {
                 alert("通信エラーが発生しました。");
             }
         }
 
-        function toggleSelectAll() {
-            const isChecked = document.getElementById("selectAllCheck").checked;
-            const checkboxes = document.querySelectorAll(".post-check");
-            checkboxes.forEach(cb => cb.checked = isChecked);
-        }
-
         async function deletePost(docId) {
             const pass = document.getElementById("adminPass").value;
-            if (!pass) { alert("パスワードを入力してください！"); return; }
-            if (!confirm("本当にこの投稿を削除しますか？")) return;
+            if (!pass) {
+                alert("パスワードを入力してください！");
+                return;
+            }
+            if (!confirm("本当に削除しますか？")) return;
 
             try {
-                const response = await fetch("/api/delete", {
+                const res = await fetch("/api/delete", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ doc_id: docId, password: pass })
                 });
-                if (response.ok) {
+                if (res.ok) {
                     alert("削除しました！");
                     loadAdminPosts();
                 } else {
