@@ -28,6 +28,13 @@ FEED_CACHE_SECONDS = 20
 BOT_TIMEOUT_SECONDS = 2
 BOT_MAX_CODE_BYTES = 20000
 BOT_MAX_EVENT_BOTS = 5
+BOT_MAX_ACTIONS_PER_RUN = 3
+BOT_ACTION_WINDOW_SECONDS = 600
+BOT_ACTION_LIMITS = {
+    "suggestion": 5,
+    "comment": 20,
+    "like": 60,
+}
 APP_VERSION = "2026.05.31-dev-api-bots"
 APP_CHANGELOG = [
     "開発者用目安箱を追加しました。",
@@ -321,6 +328,121 @@ def run_hy_bot_code(code: str, event: dict):
         except OSError:
             pass
 
+def check_bot_action_limit(bot_id: str, action_type: str):
+    now = time.time()
+    limit = BOT_ACTION_LIMITS.get(action_type, 10)
+    key = f"bot_action:{bot_id}:{action_type}"
+    hits = [hit for hit in rate_limit_store.get(key, []) if now - hit < BOT_ACTION_WINDOW_SECONDS]
+
+    if len(hits) >= limit:
+        return False, f"{action_type} action rate limit exceeded"
+
+    hits.append(now)
+    rate_limit_store[key] = hits
+    return True, ""
+
+def normalize_bot_actions(output):
+    if not isinstance(output, dict):
+        return []
+
+    actions = output.get("actions", [])
+    if isinstance(actions, dict):
+        actions = [actions]
+    if not isinstance(actions, list):
+        return []
+
+    return [action for action in actions[:BOT_MAX_ACTIONS_PER_RUN] if isinstance(action, dict)]
+
+def execute_bot_action(bot_id: str, bot: dict, action: dict, event: dict):
+    action_type = action.get("type")
+    allowed, reason = check_bot_action_limit(bot_id, action_type)
+    if not allowed:
+        return {"ok": False, "type": action_type, "error": reason}
+
+    bot_user = {
+        "uid": bot_id,
+        "name": bot.get("user_name") or "Hylang Bot",
+        "email": bot.get("user_email") or "",
+    }
+    bot_user_id = f"bot:{bot_id}"
+
+    if action_type == "suggestion":
+        text = str(action.get("text", "")).strip()
+        if not text:
+            return {"ok": False, "type": action_type, "error": "text is required"}
+        if len(text) > 1000:
+            return {"ok": False, "type": action_type, "error": "text is too long"}
+        if not is_safe_with_ai(text):
+            return {"ok": False, "type": action_type, "error": "text rejected"}
+
+        doc_ref = get_db().collection("suggestions").document()
+        doc_ref.set({
+            "text": text,
+            "liked_by": [],
+            "created_at": firestore.SERVER_TIMESTAMP,
+            "is_form_dummy": False,
+            "status": "検討中",
+            "user_id": bot_user_id,
+            "user_name": bot_user["name"],
+            "user_email": bot_user["email"],
+            "source": "hylang_bot",
+            "bot_trigger_event": event.get("type", "")
+        })
+        clear_feed_cache()
+        return {"ok": True, "type": action_type, "id": doc_ref.id}
+
+    if action_type == "comment":
+        suggestion_id = str(action.get("suggestion_id") or event.get("suggestion_id") or "").strip()
+        text = str(action.get("text", "")).strip()
+        if not suggestion_id:
+            return {"ok": False, "type": action_type, "error": "suggestion_id is required"}
+        if not text:
+            return {"ok": False, "type": action_type, "error": "text is required"}
+        if len(text) > 500:
+            return {"ok": False, "type": action_type, "error": "text is too long"}
+        if not is_safe_with_ai(text):
+            return {"ok": False, "type": action_type, "error": "text rejected"}
+
+        suggestion_ref = get_db().collection("suggestions").document(suggestion_id)
+        if not suggestion_ref.get().exists:
+            return {"ok": False, "type": action_type, "error": "suggestion not found"}
+
+        comment_ref = suggestion_ref.collection("comments").document()
+        comment_ref.set({
+            "text": text,
+            "user_id": bot_user_id,
+            "user_name": bot_user["name"],
+            "created_at": firestore.SERVER_TIMESTAMP,
+            "source": "hylang_bot",
+            "bot_trigger_event": event.get("type", "")
+        })
+        return {"ok": True, "type": action_type, "id": comment_ref.id}
+
+    if action_type == "like":
+        suggestion_id = str(action.get("suggestion_id") or event.get("suggestion_id") or "").strip()
+        if not suggestion_id:
+            return {"ok": False, "type": action_type, "error": "suggestion_id is required"}
+
+        doc_ref = get_db().collection("suggestions").document(suggestion_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return {"ok": False, "type": action_type, "error": "suggestion not found"}
+
+        liked_by = doc.to_dict().get("liked_by", [])
+        if bot_user_id in liked_by:
+            return {"ok": True, "type": action_type, "status": "already_liked"}
+
+        doc_ref.update({"liked_by": firestore.ArrayUnion([bot_user_id])})
+        clear_feed_cache()
+        updated = doc_ref.get().to_dict()
+        return {"ok": True, "type": action_type, "status": "liked", "likes": len(updated.get("liked_by", []))}
+
+    return {"ok": False, "type": action_type, "error": "unsupported action"}
+
+def execute_bot_actions(bot_id: str, bot: dict, result: dict, event: dict):
+    actions = normalize_bot_actions(result.get("output"))
+    return [execute_bot_action(bot_id, bot, action, event) for action in actions]
+
 def serialize_bot_doc(data: dict):
     return {
         "enabled": data.get("enabled", False),
@@ -328,6 +450,7 @@ def serialize_bot_doc(data: dict):
         "code": data.get("code", ""),
         "last_error": data.get("last_error", ""),
         "last_output": data.get("last_output"),
+        "last_actions": data.get("last_actions", []),
         "last_event_type": data.get("last_event_type", ""),
     }
 
@@ -342,16 +465,19 @@ def dispatch_bot_event(event: dict):
                 continue
 
             result = run_hy_bot_code(bot.get("code", ""), event)
+            action_results = execute_bot_actions(doc.id, bot, result, event) if result["ok"] else []
             update = {
                 "last_run_at": firestore.SERVER_TIMESTAMP,
                 "last_event_type": event.get("type", ""),
                 "last_output": result.get("output"),
+                "last_actions": action_results,
                 "last_error": "" if result["ok"] else result.get("stderr", "Bot execution failed"),
             }
             doc.reference.set(update, merge=True)
             doc.reference.collection("runs").add({
                 "event": event,
                 "result": result,
+                "actions": action_results,
                 "created_at": firestore.SERVER_TIMESTAMP,
             })
     except Exception as e:
@@ -620,12 +746,15 @@ def test_developer_bot(user: dict = Depends(get_current_user)):
         }
     }
     result = run_hy_bot_code(doc.to_dict().get("code", ""), event)
+    action_results = execute_bot_actions(doc.id, doc.to_dict(), result, event) if result["ok"] else []
     doc.reference.set({
         "last_run_at": firestore.SERVER_TIMESTAMP,
         "last_event_type": event["type"],
         "last_output": result.get("output"),
+        "last_actions": action_results,
         "last_error": "" if result["ok"] else result.get("stderr", "Bot execution failed"),
     }, merge=True)
+    result["actions"] = action_results
     return {"status": "success", "data": result}
 
 # --- 外部API: 意見取得 ---
