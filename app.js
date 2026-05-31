@@ -98,6 +98,20 @@ function setKairuImage(isReply) {
     }
 }
 
+function syncPostControls(user) {
+    const submitBtn = document.getElementById("submit-btn");
+    const helperText = document.getElementById("post-helper");
+    const isLoggedIn = Boolean(user);
+
+    if (submitBtn) {
+        submitBtn.disabled = !isLoggedIn;
+        submitBtn.innerText = "送信する";
+    }
+    if (helperText) {
+        helperText.innerText = isLoggedIn ? "ログイン中は投稿できます。" : "投稿にはログインが必要です。";
+    }
+}
+
 function showVersionPopupIfNeeded() {
     const key = "meyasubako_seen_version";
     if (localStorage.getItem(key) === APP_VERSION) return;
@@ -158,6 +172,7 @@ onAuthStateChanged(auth, async (user) => {
         if(userInfo) userInfo.hidden = true;
         if(logoutBtn) logoutBtn.style.display = "none";
     }
+    syncPostControls(user);
     loadAllPosts({ force: true });
 });
 
@@ -252,8 +267,8 @@ async function createSuggestion() {
     } finally {
         if (submitBtn) {
             setTimeout(() => {
-                submitBtn.disabled = false;
-                submitBtn.innerText = "投稿する";
+                submitBtn.disabled = !auth.currentUser;
+                submitBtn.innerText = "送信する";
             }, 3000); // 3秒でボタンを復活させる
         }
     }

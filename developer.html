@@ -300,7 +300,7 @@
 
         <section class="panel">
             <h2>Hylang Bot</h2>
-            <p class="muted">意見投稿、いいね変更、コメント追加のイベントで実行されます。<code>event</code> 変数を読み、<code>(respond {...})</code> でJSON結果を返せます。</p>
+            <p class="muted">意見投稿、いいね変更、コメント追加のイベントで実行されます。<code>event</code> 変数を読み、<code>(respond {...})</code> でJSON結果を返せます。<code>actions</code> でコメント投稿、意見投稿、いいねを軽い制限付きで実行できます。</p>
             <div class="row">
                 <div>
                     <p>Bot 状態</p>
@@ -309,7 +309,13 @@
                 <span class="status"><span id="bot-dot" class="dot"></span><span id="bot-status">OFF</span></span>
             </div>
             <textarea id="bot-code" class="wide-textarea" spellcheck="false">(setv event-type (get event "type"))
-(respond {"handled" event-type "ok" True})</textarea>
+(setv suggestion-id (get event "suggestion_id"))
+(if suggestion-id
+  (respond {"handled" event-type
+            "actions" [{"type" "comment"
+                        "suggestion_id" suggestion-id
+                        "text" "Botがイベントを受け取りました。"}]})
+  (respond {"handled" event-type "actions" []}))</textarea>
             <div class="actions">
                 <button id="bot-upload-btn" class="primary" type="button" disabled>アップロード</button>
                 <button id="bot-on-btn" type="button" disabled>有効化</button>
@@ -400,6 +406,7 @@
             if (data?.code) $("bot-code").value = data.code;
             $("bot-output").value = JSON.stringify({
                 last_output: data?.last_output || null,
+                last_actions: data?.last_actions || [],
                 last_error: data?.last_error || ""
             }, null, 2);
         }
