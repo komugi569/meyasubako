@@ -42,133 +42,154 @@
     </div>
 
     <script>
-        // ==========================================
-        // 📦 投稿一覧を読み込んで表示する処理
+       // ==========================================
+        // 📦 投稿一覧を読み込んで表示する処理（管理者・情報開示版）
         // ==========================================
         async function loadAdminPosts() {
             const adminList = document.getElementById("admin-list");
+            adminList.innerHTML = "<p>読み込み中...</p>";
+            
+            const pass = document.getElementById("adminPass").value;
+            if (!pass) {
+                adminList.innerHTML = "<p style='color:#e74c3c;'>パスワードを入力すると一覧が同期されます</p>";
+                return;
+            }
 
             try {
-                const response = await fetch("/api/suggestions"); 
-                const posts = await response.json();
-                adminList.innerHTML = "";
+                // ① 💡 管理者専用の、誰が書いたかがわかるAPIから意見を取得
+                const response = await fetch(`/api/admin/suggestions?password=${encodeURIComponent(pass)}`); 
+                if (!response.ok) throw new Error("パスワードが違うか、認証エラー");
+                const suggestions = await response.json();
 
-                if (posts.length === 0) {
+                // ② フォームの意見を取得
+                const gasRes = await fetch(GAS_URL);
+                const formData = await gasRes.json();
+
+                // ③ 非表示リストを取得
+                const delRes = await fetch("/api/deleted_forms");
+                const deletedFormIds = await delRes.json();
+
+                // ④ フォームデータの整形
+                const formSuggestions = formData.map((item, idx) => {
+                    const timeId = item.timestamp ? new Date(item.timestamp).getTime() : idx;
+                    return {
+                        id: `form-${timeId}`,
+                        text: item.content,
+                        likes: 0, 
+                        isForm: true,
+                        user_name: "Googleフォーム（外部）",
+                        user_email: "-",
+                        created_at: item.timestamp ? new Date(item.timestamp).getTime() : 0 
+                    };
+                });
+
+                // ⑤ 合体させて、非表示リストに入っていないものを抽出
+                let combined = suggestions.concat(formSuggestions);
+                const activePosts = combined.filter(post => !deletedFormIds.includes(post.id));
+
+                adminList.innerHTML = "";
+                if (activePosts.length === 0) {
                     adminList.innerHTML = "<p>現在の投稿はありません。</p>";
                     return;
                 }
 
-                posts.forEach(post => {
+                // ⑥ 画面に一覧を描画
+                activePosts.forEach(post => {
                     const postDiv = document.createElement("div");
                     postDiv.className = "post";
 
-                    // 左側（チェックボックスとテキスト）
                     const contentDiv = document.createElement("div");
                     contentDiv.className = "post-content";
+                    contentDiv.style.flexDirection = "column"; // 縦並びにして情報を見やすくする
+                    contentDiv.style.alignItems = "flex-start";
                     
+                    // 上段: チェックボックス ＋ 投稿テキスト
+                    const topRow = document.createElement("div");
+                    topRow.style.display = "flex";
+                    topRow.style.alignItems = "center";
+                    topRow.style.gap = "10px";
+
                     const checkbox = document.createElement("input");
                     checkbox.type = "checkbox";
                     checkbox.className = "post-check";
-                    checkbox.value = post.id; // チェックボックスの裏にIDを隠し持つ
+                    checkbox.value = post.id; 
 
                     const textSpan = document.createElement("span");
-                    textSpan.textContent = post.text;
+                    textSpan.textContent = (post.isForm ? "【📋】 " : "【📝】 ") + post.text;
+                    
+                    topRow.appendChild(checkbox);
+                    topRow.appendChild(textSpan);
 
-                    contentDiv.appendChild(checkbox);
-                    contentDiv.appendChild(textSpan);
+                    // 下段: 🔍 誰が投稿したかの身元情報（ここがポイント！）
+                    const infoDiv = document.createElement("div");
+                    infoDiv.style.fontSize = "0.85em";
+                    infoDiv.style.color = "#bdc3c7";
+                    infoDiv.style.marginTop = "5px";
+                    infoDiv.style.paddingLeft = "30px";
+                    infoDiv.innerHTML = `👤 投稿者: <strong>${post.user_name || "不明"}</strong> ✉️ メール: <code>${post.user_email || "-"}</code>`;
 
-                    // 右側（個別の削除ボタン）
+                    contentDiv.appendChild(topRow);
+                    contentDiv.appendChild(infoDiv);
+
+                    // 🏷️ 右側: ステータス変更プルダウン ＋ 削除ボタン
+                    const rightDiv = document.createElement("div");
+                    rightDiv.style.display = "flex";
+                    rightDiv.style.gap = "10px";
+                    rightDiv.style.alignItems = "center";
+
+                    const statusSelect = document.createElement("select");
+                    statusSelect.style.padding = "5px";
+                    statusSelect.style.borderRadius = "4px";
+                    ["検討中", "対応中", "解決済み"].forEach(st => {
+                        const opt = document.createElement("option");
+                        opt.value = st;
+                        opt.textContent = st;
+                        if ((post.status || "検討中") === st) opt.selected = true;
+                        statusSelect.appendChild(opt);
+                    });
+                    // 選択が変わったら即座にAPIでステータス変更
+                    statusSelect.onchange = () => updateStatus(post.id, statusSelect.value);
+
                     const deleteBtn = document.createElement("button");
                     deleteBtn.className = "delete-btn";
-                    deleteBtn.textContent = "🗑️ 個別削除";
+                    deleteBtn.textContent = "🗑️ 削除";
                     deleteBtn.onclick = () => deletePost(post.id);
 
+                    rightDiv.appendChild(statusSelect);
+                    rightDiv.appendChild(deleteBtn);
+
                     postDiv.appendChild(contentDiv);
-                    postDiv.appendChild(deleteBtn);
+                    postDiv.appendChild(rightDiv);
                     adminList.appendChild(postDiv);
                 });
 
             } catch (error) {
                 console.error("読み込みエラー:", error);
-                adminList.innerHTML = "<p>データの読み込みに失敗しました。</p>";
+                adminList.innerHTML = `<p style='color:#e74c3c;'>エラー: パスワードを確認するか、再入力してください。</p>`;
             }
         }
 
-        // ==========================================
-        // ☑️ 「すべて選択」のチェックボックスを連動させる処理
-        // ==========================================
-        function toggleSelectAll() {
-            const isChecked = document.getElementById("selectAllCheck").checked;
-            const checkboxes = document.querySelectorAll(".post-check");
-            // 画面上のすべてのチェックボックスの状態を、親玉に合わせる
-            checkboxes.forEach(cb => cb.checked = isChecked);
-        }
-
-        // ==========================================
-        // 🗑️ 【個別】削除ボタンを押したときの処理
-        // ==========================================
-        async function deletePost(docId) {
+        // 💡 ステータスを更新する関数（新規追記）
+        async function updateStatus(docId, newStatus) {
             const pass = document.getElementById("adminPass").value;
-            if (!pass) { alert("パスワードを入力してください！"); return; }
-            if (!confirm("本当にこの投稿を削除しますか？")) return;
-
             try {
-                const response = await fetch("/api/delete", {
+                const response = await fetch(`/api/suggestions/${docId}/status`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ doc_id: docId, password: pass })
+                    body: JSON.stringify({ password: pass, status: newStatus })
                 });
-                
                 if (response.ok) {
-                    alert("削除しました！");
-                    location.reload();
+                    alert(`ステータスを「${newStatus}」に更新しました！`);
                 } else {
-                    alert("パスワードが違うか、エラーが発生しました。");
+                    alert("ステータスの更新に失敗しました。");
                 }
             } catch (error) {
                 alert("通信エラーが発生しました。");
             }
         }
 
-        // ==========================================
-        // 🧨 【一括】選択した項目を一気に削除する処理
-        // ==========================================
-        async function deleteSelectedPosts() {
-            // チェックが入っている項目だけを抽出
-            const checkboxes = document.querySelectorAll("#admin-list .post-check:checked");
-            const selectedIds = Array.from(checkboxes).map(cb => cb.value);
-
-            if (selectedIds.length === 0) {
-                alert("削除する項目が選択されていません。");
-                return;
-            }
-
-            const pass = document.getElementById("adminPass").value;
-            if (!pass) { alert("パスワードを入力してください！"); return; }
-            if (!confirm(`選択された ${selectedIds.length} 件の投稿を一括削除します。本当によろしいですか？`)) return;
-
-            try {
-                // 💡 Promise.all を使って、選択された数だけ「個別削除API」を同時に撃ち込む
-                const deletePromises = selectedIds.map(id => 
-                    fetch("/api/delete", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ doc_id: id, password: pass })
-                    })
-                );
-
-                // すべての削除通信が終わるまで待つ
-                await Promise.all(deletePromises);
-                
-                alert("一括削除が完了しました！");
-                location.reload();
-            } catch (error) {
-                console.error("一括削除エラー:", error);
-                alert("一部の削除に失敗した可能性があります。");
-            }
-        }
-
-        window.onload = loadAdminPosts;
+        // パスワード入力欄から手を離した(またはエンターを押した)時にも自動同期させる
+        document.getElementById("adminPass").addEventListener("change", loadAdminPosts);
     </script>
 </body>
 </html>

@@ -311,47 +311,48 @@ window.showCategoryDetail = function(category, titleText) {
     renderPostCards(targetPosts, 'detail-list');
 }
 
-// ==========================================
-// 🖨️ 8. カードの生成処理（フォーム対応版）
-// ==========================================
 function renderPostCards(posts, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
     container.innerHTML = ""; 
 
-    if (!posts.length) {
-        const empty = document.createElement("p");
-        empty.className = "empty-message";
-        empty.textContent = "まだ表示できる意見がありません。";
-        container.appendChild(empty);
-        return;
-    }
-
     posts.forEach(post => {
         const card = document.createElement("div");
         card.className = "post-card";
 
-        const source = document.createElement("div");
-        source.className = "post-source";
-        source.textContent = post.isForm ? "フォームからの意見" : "アプリからの意見";
+        let badgeHtml = post.isForm 
+            ? `<div style="color: #7F8C8D; font-size: 0.8em; margin-bottom: 5px; font-weight: bold;">📋 フォームからの意見</div>` 
+            : "";
 
-        const text = document.createElement("p");
-        text.className = "post-text";
-        text.textContent = post.text || "内容がありません。";
+        // 💡 1. ステータスに応じた色分けバッジの作成
+        const status = post.status || "検討中";
+        let statusColor = "#147c72"; // 検討中: 緑
+        if (status === "対応中") statusColor = "#e67e22"; // 対応中: オレンジ
+        if (status === "解決済み") statusColor = "#7f8c8d"; // 解決済み: グレー
+        let statusHtml = `<span style="background: ${statusColor}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; margin-left: auto;">${status}</span>`;
 
-        const actions = document.createElement("div");
-        actions.className = "post-actions";
+        // 💡 2. コメント欄のユニークIDを作成
+        const commentAreaId = `comments-${post.id}`;
 
-        const likeButton = document.createElement("button");
-        likeButton.className = "like-btn";
-        likeButton.type = "button";
-        likeButton.textContent = `いいね ${post.likes || 0}`;
-        likeButton.addEventListener("click", () => likeSuggestion(post.id));
-
-        actions.appendChild(likeButton);
-        card.appendChild(source);
-        card.appendChild(text);
-        card.appendChild(actions);
+        card.innerHTML = `
+            <div style="display: flex; align-items: center; width: 100%;">
+                ${badgeHtml}
+                ${statusHtml}
+            </div>
+            <p style="margin-top: 8px; font-size: 15px; line-height: 1.4;">${escapeHtml(post.text)}</p>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button class="like-btn" onclick="likeSuggestion('${post.id}')">❤️ ${post.likes || 0}</button>
+                <button class="like-btn" onclick="toggleComments('${post.id}')">💬 コメント</button>
+            </div>
+            
+            <div id="${commentAreaId}" style="display: none; margin-top: 12px; padding-top: 10px; border-top: 1px solid #ddd; text-align: left;">
+                <div id="list-${commentAreaId}" style="font-size: 0.85em; color: #444; max-height: 150px; overflow-y: auto; margin-bottom: 8px;"></div>
+                <div style="display: flex; gap: 5px;">
+                    <input type="text" id="input-${commentAreaId}" placeholder="コメントを書く..." style="flex-grow: 1; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9em;">
+                    <button onclick="submitComment('${post.id}')" style="padding: 6px 12px; background: #147c72; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;">送信</button>
+                </div>
+            </div>
+        `;
         container.appendChild(card);
     });
 }
@@ -385,5 +386,66 @@ window.likeSuggestion = async function(id) {
         }
     } catch (error) {
         console.error(error);
+    }
+}
+
+// 💬 コメントエリアの開閉と読み込み
+window.toggleComments = async function(postId) {
+    const area = document.getElementById(`comments-${postId}`);
+    if (area.style.display === "none") {
+        area.style.display = "block";
+        await loadComments(postId);
+    } else {
+        area.style.display = "none";
+    }
+}
+
+// 💬 コメントのリアルタイム読み込み処理
+async function loadComments(postId) {
+    const listContainer = document.getElementById(`list-comments-${postId}`);
+    listContainer.innerHTML = "<span style='color:#888;'>読み込み中...</span>";
+    try {
+        const res = await fetch(`/api/suggestions/${postId}/comments`);
+        const comments = await res.json();
+        listContainer.innerHTML = "";
+        if (comments.length === 0) {
+            listContainer.innerHTML = "<span style='color:#aaa; font-style:italic;'>コメントはまだありません</span>";
+            return;
+        }
+        comments.forEach(c => {
+            const div = document.createElement("div");
+            div.style.marginBottom = "6px";
+            div.innerHTML = `<strong style="color:#147c72;">${escapeHtml(c.user_name)}:</strong> ${escapeHtml(c.text)}`;
+            listContainer.appendChild(div);
+        });
+    } catch (e) {
+        listContainer.innerHTML = "読み込み失敗";
+    }
+}
+
+// 💬 コメントの送信処理
+window.submitComment = async function(postId) {
+    if (!currentUserToken) return alert("コメントをするにはログインが必要です！");
+    const input = document.getElementById(`input-comments-${postId}`);
+    const text = input.value.trim();
+    if (!text) return;
+
+    try {
+        const res = await fetch(`/api/suggestions/${postId}/comments`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${currentUserToken}`
+            },
+            body: JSON.stringify({ text: text })
+        });
+        if (res.ok) {
+            input.value = "";
+            await loadComments(postId); // コメント欄を更新
+        } else {
+            alert("コメントの送信に失敗しました");
+        }
+    } catch (e) {
+        alert("通信エラーが発生しました");
     }
 }
