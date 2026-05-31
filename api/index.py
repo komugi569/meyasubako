@@ -283,9 +283,14 @@ def run_hy_bot_code(code: str, event: dict):
         bot_path = bot_file.name
 
     try:
+        python_path_entries = [path for path in sys.path if path]
+        existing_python_path = os.environ.get("PYTHONPATH", "")
+        if existing_python_path:
+            python_path_entries.append(existing_python_path)
+
         env = {
             "PATH": os.environ.get("PATH", ""),
-            "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+            "PYTHONPATH": os.pathsep.join(python_path_entries),
             "MEYASUBAKO_EVENT": json.dumps(event, ensure_ascii=False),
         }
         completed = subprocess.run(
