@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>開発者用目安箱</title>
+    <link rel="icon" href="data:,">
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #0d1117;
+            --panel: #161b22;
+            --panel-2: #1f2630;
+            --border: #30363d;
+            --text: #e6edf3;
+            --muted: #8b949e;
+            --accent: #2f81f7;
+            --accent-2: #1f6feb;
+            --danger: #f85149;
+            --ok: #3fb950;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            background: #010409;
+        }
+
+        .header-inner,
+        main {
+            width: min(1040px, calc(100% - 32px));
+            margin: 0 auto;
+        }
+
+        .header-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 20px 0;
+        }
+
+        h1,
+        h2,
+        p {
+            margin: 0;
+        }
+
+        h1 {
+            font-size: 1.35rem;
+            font-weight: 700;
+        }
+
+        h2 {
+            font-size: 1rem;
+            margin-bottom: 14px;
+        }
+
+        main {
+            display: grid;
+            gap: 16px;
+            padding: 24px 0 40px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .panel {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            padding: 18px;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 0.92rem;
+            line-height: 1.6;
+        }
+
+        .row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .row:first-of-type {
+            border-top: 0;
+            padding-top: 0;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        button {
+            min-height: 38px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--panel-2);
+            color: var(--text);
+            font: inherit;
+            cursor: pointer;
+            padding: 0 14px;
+        }
+
+        button.primary {
+            border-color: var(--accent-2);
+            background: var(--accent);
+            color: white;
+        }
+
+        button.danger {
+            border-color: rgba(248, 81, 73, 0.55);
+            color: #ffd7d5;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+        }
+
+        .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--danger);
+        }
+
+        .dot.on {
+            background: var(--ok);
+        }
+
+        code,
+        textarea {
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 92px;
+            resize: vertical;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #0d1117;
+            color: var(--text);
+            padding: 12px;
+            margin-top: 12px;
+        }
+
+        .endpoint-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .wide-textarea {
+            min-height: 220px;
+        }
+
+        .endpoint {
+            display: flex;
+            gap: 10px;
+            align-items: baseline;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #0d1117;
+        }
+
+        .method {
+            min-width: 48px;
+            color: #79c0ff;
+            font-weight: 700;
+            font-size: 0.8rem;
+        }
+
+        #message {
+            min-height: 24px;
+            color: var(--muted);
+        }
+
+        @media (max-width: 760px) {
+            .header-inner,
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header-inner {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .row {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-inner">
+            <div>
+                <p class="muted">Developer Console</p>
+                <h1>開発者用目安箱</h1>
+            </div>
+            <div class="actions">
+                <button id="login-btn" class="primary" type="button">ログイン</button>
+                <button id="logout-btn" type="button" hidden>ログアウト</button>
+                <a href="index.html"><button type="button">通常画面</button></a>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <p id="message" aria-live="polite"></p>
+
+        <section class="grid">
+            <div class="panel">
+                <h2>アカウント</h2>
+                <div class="row">
+                    <div>
+                        <p>ログイン状態</p>
+                        <p id="user-info" class="muted">未ログイン</p>
+                    </div>
+                    <span class="status"><span id="login-dot" class="dot"></span><span id="login-status">OFF</span></span>
+                </div>
+                <div class="row">
+                    <div>
+                        <p>開発者モード</p>
+                        <p class="muted">外部API token の利用可否を切り替えます。</p>
+                    </div>
+                    <span class="status"><span id="mode-dot" class="dot"></span><span id="mode-status">OFF</span></span>
+                </div>
+                <div class="actions">
+                    <button id="mode-on-btn" class="primary" type="button" disabled>有効化</button>
+                    <button id="mode-off-btn" class="danger" type="button" disabled>無効化</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>API Token</h2>
+                <div class="row">
+                    <div>
+                        <p>Token 状態</p>
+                        <p id="token-preview" class="muted">未発行</p>
+                    </div>
+                    <span class="status"><span id="token-dot" class="dot"></span><span id="token-status">OFF</span></span>
+                </div>
+                <div class="actions">
+                    <button id="generate-btn" class="primary" type="button" disabled>発行 / 再発行</button>
+                    <button id="token-on-btn" type="button" disabled>有効化</button>
+                    <button id="token-off-btn" class="danger" type="button" disabled>無効化</button>
+                    <button id="copy-btn" type="button" disabled>コピー</button>
+                </div>
+                <textarea id="token-output" readonly placeholder="発行した token はここに一度だけ表示されます。"></textarea>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>外部API</h2>
+            <p class="muted">全リクエストで <code>Authorization: Bearer API_TOKEN</code> を付けてください。</p>
+            <div class="endpoint-list">
+                <div class="endpoint"><span class="method">GET</span><code>/api/external/suggestions</code></div>
+                <div class="endpoint"><span class="method">POST</span><code>/api/external/suggestions</code></div>
+                <div class="endpoint"><span class="method">GET</span><code>/api/external/suggestions/{id}/likes</code></div>
+                <div class="endpoint"><span class="method">POST</span><code>/api/external/suggestions/{id}/like</code></div>
+                <div class="endpoint"><span class="method">GET</span><code>/api/external/suggestions/{id}/comments</code></div>
+                <div class="endpoint"><span class="method">POST</span><code>/api/external/suggestions/{id}/comments</code></div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>Hylang Bot</h2>
+            <p class="muted">意見投稿、いいね変更、コメント追加のイベントで実行されます。<code>event</code> 変数を読み、<code>(respond {...})</code> でJSON結果を返せます。</p>
+            <div class="row">
+                <div>
+                    <p>Bot 状態</p>
+                    <p id="bot-last" class="muted">未設定</p>
+                </div>
+                <span class="status"><span id="bot-dot" class="dot"></span><span id="bot-status">OFF</span></span>
+            </div>
+            <textarea id="bot-code" class="wide-textarea" spellcheck="false">(setv event-type (get event "type"))
+(respond {"handled" event-type "ok" True})</textarea>
+            <div class="actions">
+                <button id="bot-upload-btn" class="primary" type="button" disabled>アップロード</button>
+                <button id="bot-on-btn" type="button" disabled>有効化</button>
+                <button id="bot-off-btn" class="danger" type="button" disabled>無効化</button>
+                <button id="bot-test-btn" type="button" disabled>テスト実行</button>
+            </div>
+            <textarea id="bot-output" readonly placeholder="テスト結果や最終実行結果を表示します。"></textarea>
+        </section>
+    </main>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCTbxVNCdcJyFpYAfONVhmr9lPlFPK6Hvc",
+            authDomain: "meyasubako-23797.firebaseapp.com",
+            databaseURL: "https://meyasubako-23797-default-rtdb.firebaseio.com",
+            projectId: "meyasubako-23797",
+            storageBucket: "meyasubako-23797.firebasestorage.app",
+            messagingSenderId: "368665628904",
+            appId: "1:368665628904:web:68313348fb56c23b01795d",
+            measurementId: "G-Y57PT610HG"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+
+        const $ = (id) => document.getElementById(id);
+        let lastToken = "";
+
+        function setMessage(text) {
+            $("message").textContent = text || "";
+        }
+
+        function setDot(id, enabled) {
+            $(id).classList.toggle("on", Boolean(enabled));
+        }
+
+        function setControls(enabled) {
+            ["mode-on-btn", "mode-off-btn", "generate-btn", "token-on-btn", "token-off-btn", "bot-upload-btn", "bot-on-btn", "bot-off-btn", "bot-test-btn"].forEach((id) => {
+                $(id).disabled = !enabled;
+            });
+            $("copy-btn").disabled = !lastToken;
+        }
+
+        async function requestJson(path, options = {}) {
+            const user = auth.currentUser;
+            if (!user) throw new Error("ログインしてください");
+
+            const token = await user.getIdToken(true);
+            const res = await fetch(path, {
+                ...options,
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`,
+                    ...(options.headers || {})
+                }
+            });
+            const data = await res.json().catch(() => null);
+            if (!res.ok) throw new Error(data?.detail || "APIエラーが発生しました");
+            return data;
+        }
+
+        function renderStatus(data) {
+            const mode = data?.developer_mode_enabled;
+            const tokenEnabled = data?.token_enabled;
+
+            $("mode-status").textContent = mode ? "ON" : "OFF";
+            $("token-status").textContent = tokenEnabled ? "ON" : "OFF";
+            $("token-preview").textContent = data?.has_token ? data.token_preview : "未発行";
+            setDot("mode-dot", mode);
+            setDot("token-dot", tokenEnabled);
+        }
+
+        async function loadStatus() {
+            const json = await requestJson("/api/developer/status");
+            renderStatus(json.data);
+        }
+
+        function renderBot(data) {
+            const enabled = data?.enabled;
+            $("bot-status").textContent = enabled ? "ON" : "OFF";
+            $("bot-last").textContent = data?.has_code ? `最終イベント: ${data.last_event_type || "なし"}` : "未設定";
+            setDot("bot-dot", enabled);
+            if (data?.code) $("bot-code").value = data.code;
+            $("bot-output").value = JSON.stringify({
+                last_output: data?.last_output || null,
+                last_error: data?.last_error || ""
+            }, null, 2);
+        }
+
+        async function loadBot() {
+            const json = await requestJson("/api/developer/bot");
+            renderBot(json.data);
+        }
+
+        async function updateMode(enabled) {
+            const json = await requestJson("/api/developer/mode", {
+                method: "POST",
+                body: JSON.stringify({ enabled })
+            });
+            renderStatus(json.data);
+            setMessage(enabled ? "開発者モードを有効にしました。" : "開発者モードを無効にしました。");
+        }
+
+        async function generateToken() {
+            const json = await requestJson("/api/developer/token/generate", { method: "POST" });
+            lastToken = json.data.token;
+            $("token-output").value = lastToken;
+            $("copy-btn").disabled = false;
+            renderStatus(json.data);
+            setMessage("API tokenを発行しました。");
+        }
+
+        async function updateToken(enabled) {
+            const json = await requestJson("/api/developer/token/status", {
+                method: "POST",
+                body: JSON.stringify({ enabled })
+            });
+            renderStatus(json.data);
+            setMessage(enabled ? "API tokenを有効にしました。" : "API tokenを無効にしました。");
+        }
+
+        async function uploadBot() {
+            const json = await requestJson("/api/developer/bot", {
+                method: "POST",
+                body: JSON.stringify({ code: $("bot-code").value, enabled: true })
+            });
+            renderBot(json.data);
+            setMessage("Hylang botをアップロードしました。");
+        }
+
+        async function updateBot(enabled) {
+            const json = await requestJson("/api/developer/bot/status", {
+                method: "POST",
+                body: JSON.stringify({ enabled })
+            });
+            renderBot(json.data);
+            setMessage(enabled ? "Hylang botを有効にしました。" : "Hylang botを無効にしました。");
+        }
+
+        async function testBot() {
+            const json = await requestJson("/api/developer/bot/test", { method: "POST" });
+            $("bot-output").value = JSON.stringify(json.data, null, 2);
+            setMessage("Hylang botをテスト実行しました。");
+            await loadBot();
+        }
+
+        $("login-btn").addEventListener("click", () => signInWithPopup(auth, provider).catch((e) => setMessage(e.message)));
+        $("logout-btn").addEventListener("click", () => signOut(auth));
+        $("mode-on-btn").addEventListener("click", () => updateMode(true).catch((e) => setMessage(e.message)));
+        $("mode-off-btn").addEventListener("click", () => updateMode(false).catch((e) => setMessage(e.message)));
+        $("generate-btn").addEventListener("click", () => generateToken().catch((e) => setMessage(e.message)));
+        $("token-on-btn").addEventListener("click", () => updateToken(true).catch((e) => setMessage(e.message)));
+        $("token-off-btn").addEventListener("click", () => updateToken(false).catch((e) => setMessage(e.message)));
+        $("bot-upload-btn").addEventListener("click", () => uploadBot().catch((e) => setMessage(e.message)));
+        $("bot-on-btn").addEventListener("click", () => updateBot(true).catch((e) => setMessage(e.message)));
+        $("bot-off-btn").addEventListener("click", () => updateBot(false).catch((e) => setMessage(e.message)));
+        $("bot-test-btn").addEventListener("click", () => testBot().catch((e) => setMessage(e.message)));
+        $("copy-btn").addEventListener("click", async () => {
+            await navigator.clipboard.writeText(lastToken);
+            setMessage("API tokenをコピーしました。");
+        });
+
+        onAuthStateChanged(auth, async (user) => {
+            const loggedIn = Boolean(user);
+            $("login-btn").hidden = loggedIn;
+            $("logout-btn").hidden = !loggedIn;
+            $("login-status").textContent = loggedIn ? "ON" : "OFF";
+            setDot("login-dot", loggedIn);
+            setControls(loggedIn);
+
+            if (!user) {
+                $("user-info").textContent = "未ログイン";
+                renderStatus({});
+                renderBot({});
+                return;
+            }
+
+            $("user-info").textContent = `${user.displayName || "名前なし"} / ${user.email || "メールなし"}`;
+            try {
+                await loadStatus();
+                await loadBot();
+            } catch (e) {
+                setMessage(e.message);
+            }
+        });
+    </script>
+</body>
+</html>

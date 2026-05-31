@@ -28,6 +28,13 @@ const KAIRU_NORMAL_IMAGE = "kairu.png";
 const KAIRU_REPLY_IMAGE = "kairu_excel.png";
 const KAIRU_NORMAL_TEXT = "何かお困りのことはありますか？";
 const KAIRU_REPLY_TEXT = "知りません";
+const APP_VERSION = "2026.05.31-dev-api-bots";
+const APP_CHANGELOG = [
+    "開発者用目安箱を追加しました。",
+    "ログイン済み開発者向けの外部API tokenを発行できるようにしました。",
+    "Hylang botをアップロードして、意見・いいね・コメントのイベントを受け取れるようにしました。",
+    "コメント取得と管理画面の投稿者名表示を修正しました。"
+];
 
 async function readJsonResponse(response, label) {
     const text = await response.text();
@@ -64,6 +71,8 @@ function initApp() {
     if(suggestionInput) {
         suggestionInput.addEventListener("input", () => setKairuImage(false));
     }
+
+    showVersionPopupIfNeeded();
 }
 
 // 💡 type="module" の仕様対策：すでにDOMが読み込み終わっているかチェックしてから起動する
@@ -87,6 +96,45 @@ function setKairuImage(isReply) {
     if (kairuTextbox) {
         kairuTextbox.innerText = isReply ? KAIRU_REPLY_TEXT : KAIRU_NORMAL_TEXT;
     }
+}
+
+function showVersionPopupIfNeeded() {
+    const key = "meyasubako_seen_version";
+    if (localStorage.getItem(key) === APP_VERSION) return;
+
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "9999";
+    overlay.style.background = "rgba(12, 19, 24, 0.58)";
+    overlay.style.display = "grid";
+    overlay.style.placeItems = "center";
+    overlay.style.padding = "20px";
+
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.style.width = "min(520px, 100%)";
+    dialog.style.borderRadius = "8px";
+    dialog.style.background = "#ffffff";
+    dialog.style.boxShadow = "0 24px 80px rgba(0, 0, 0, 0.28)";
+    dialog.style.padding = "22px";
+    dialog.style.color = "#22313f";
+
+    const items = APP_CHANGELOG.map(item => `<li style="margin: 8px 0;">${escapeHtml(item)}</li>`).join("");
+    dialog.innerHTML = `
+        <p style="margin: 0 0 4px; color: #147c72; font-weight: 700; font-size: 0.85rem;">Version ${escapeHtml(APP_VERSION)}</p>
+        <h2 style="margin: 0 0 12px; font-size: 1.25rem;">新しい目安箱になりました</h2>
+        <ul style="margin: 0 0 18px; padding-left: 20px; line-height: 1.6;">${items}</ul>
+        <button id="version-popup-close" type="button" style="width: 100%; min-height: 42px; border: 0; border-radius: 6px; background: #147c72; color: white; font-weight: 700; cursor: pointer;">確認しました</button>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    document.getElementById("version-popup-close").addEventListener("click", () => {
+        localStorage.setItem(key, APP_VERSION);
+        overlay.remove();
+    });
 }
 // ==========================================
 // 🔐 3. 認証（ログイン・ログアウト）処理
