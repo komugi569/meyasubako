@@ -214,47 +214,6 @@ window.submitSuggestion = createSuggestion;
 
 
 // ==========================================
-// 💬 コメントの送信処理（絶対クラッシュしない完全防御版）
-// ==========================================
-window.submitComment = async function(postId) {
-    const user = auth.currentUser;
-    if (!user) return alert("コメントをするにはログインが必要です！");
-    
-    const input = document.getElementById(`input-comments-${postId}`);
-    const text = input.value.trim();
-    if (!text) return;
-
-    try {
-        // 💡 ここでも常に最新のトークンを発行
-        const freshToken = await user.getIdToken(true); 
-        const res = await fetch(`/api/suggestions/${postId}/comments`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${freshToken}`
-            },
-            body: JSON.stringify({ text: text })
-        });
-        
-        if (res.ok) {
-            input.value = "";
-            await loadComments(postId); 
-        } else {
-            // 💡 クラッシュ防止の安全読み取り
-            let errorMsg = "コメントの送信に失敗しました";
-            try {
-                const err = await res.json();
-                errorMsg = err.detail || errorMsg;
-            } catch(e) {}
-            alert("エラー: " + errorMsg);
-        }
-    } catch (e) {
-        console.error("コメント通信エラー:", e);
-        alert("通信エラーが発生しました");
-    }
-}
-
-// ==========================================
 // 📦 6. データの取得と結合（並列処理で爆速化）
 // ==========================================
 async function loadAllPosts(options = { force: false }) {
@@ -419,8 +378,10 @@ async function loadComments(postId) {
     const listContainer = document.getElementById(`list-comments-${postId}`);
     listContainer.innerHTML = "<span style='color:#888;'>読み込み中...</span>";
     try {
-        const res = await fetch(`/api/suggestions/${postId}/comments`);
-        const comments = await res.json();
+        const data = await fetch(`/api/suggestions/${postId}/comments`)
+            .then(res => readJsonResponse(res, "コメント"));
+        const comments = Array.isArray(data) ? data : (data?.data || []);
+
         listContainer.innerHTML = "";
         if (comments.length === 0) {
             listContainer.innerHTML = "<span style='color:#aaa; font-style:italic;'>コメントはまだありません</span>";
@@ -433,6 +394,7 @@ async function loadComments(postId) {
             listContainer.appendChild(div);
         });
     } catch (e) {
+        console.error("コメント取得エラー:", e);
         listContainer.innerHTML = "読み込み失敗";
     }
 }
@@ -442,6 +404,8 @@ window.submitComment = async function(postId) {
     if (!user) return alert("コメントをするにはログインが必要です！");
     
     const input = document.getElementById(`input-comments-${postId}`);
+    if (!input) return alert("コメント入力欄が見つかりません");
+
     const text = input.value.trim();
     if (!text) return;
 
@@ -455,15 +419,13 @@ window.submitComment = async function(postId) {
             },
             body: JSON.stringify({ text: text })
         });
-        
-        if (res.ok) {
-            input.value = "";
-            await loadComments(postId); 
-        } else {
-            alert("コメントの送信に失敗しました");
-        }
+
+        await readJsonResponse(res, "コメント送信");
+        input.value = "";
+        await loadComments(postId);
     } catch (e) {
-        alert("通信エラーが発生しました");
+        console.error("コメント通信エラー:", e);
+        alert("エラー: " + e.message);
     }
 }
 
