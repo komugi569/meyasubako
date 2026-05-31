@@ -311,6 +311,9 @@ window.showCategoryDetail = function(category, titleText) {
     renderPostCards(targetPosts, 'detail-list');
 }
 
+// ==========================================
+// 🖨️ カードの生成処理（ボタン左下固定レイアウト）
+// ==========================================
 function renderPostCards(posts, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -319,19 +322,22 @@ function renderPostCards(posts, containerId) {
     posts.forEach(post => {
         const card = document.createElement("div");
         card.className = "post-card";
+        
+        // 💡 カード自体を縦並び（Flexbox）にして、高さをカード内でいっぱいに広げる
+        card.style.display = "flex";
+        card.style.flexDirection = "column";
+        card.style.height = "100%";
 
         let badgeHtml = post.isForm 
             ? `<div style="color: #7F8C8D; font-size: 0.8em; margin-bottom: 5px; font-weight: bold;">📋 フォームからの意見</div>` 
             : "";
 
-        // 💡 1. ステータスに応じた色分けバッジの作成
         const status = post.status || "検討中";
-        let statusColor = "#147c72"; // 検討中: 緑
-        if (status === "対応中") statusColor = "#e67e22"; // 対応中: オレンジ
-        if (status === "解決済み") statusColor = "#7f8c8d"; // 解決済み: グレー
+        let statusColor = "#147c72"; 
+        if (status === "対応中") statusColor = "#e67e22"; 
+        if (status === "解決済み") statusColor = "#7f8c8d"; 
         let statusHtml = `<span style="background: ${statusColor}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; margin-left: auto;">${status}</span>`;
 
-        // 💡 2. コメント欄のユニークIDを作成
         const commentAreaId = `comments-${post.id}`;
 
         card.innerHTML = `
@@ -339,8 +345,10 @@ function renderPostCards(posts, containerId) {
                 ${badgeHtml}
                 ${statusHtml}
             </div>
-            <p style="margin-top: 8px; font-size: 15px; line-height: 1.4;">${escapeHtml(post.text)}</p>
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
+            
+            <p style="margin-top: 8px; font-size: 15px; line-height: 1.4; flex-grow: 1;">${escapeHtml(post.text)}</p>
+            
+            <div style="display: flex; gap: 10px; margin-top: auto; padding-top: 15px;">
                 <button class="like-btn" onclick="likeSuggestion('${post.id}')">❤️ ${post.likes || 0}</button>
                 <button class="like-btn" onclick="toggleComments('${post.id}')">💬 コメント</button>
             </div>
@@ -356,6 +364,7 @@ function renderPostCards(posts, containerId) {
         container.appendChild(card);
     });
 }
+
 
 // ==========================================
 // ❤️ 9. いいね！処理
@@ -423,22 +432,29 @@ async function loadComments(postId) {
     }
 }
 
-// 💬 コメントの送信処理
+// 💬 コメントの送信処理（トークン切れバグ修正版）
 window.submitComment = async function(postId) {
-    if (!currentUserToken) return alert("コメントをするにはログインが必要です！");
+    // 💡 常に「今の」ユーザー状態を取得する
+    const user = auth.currentUser;
+    if (!user) return alert("コメントをするにはログインが必要です！");
+    
     const input = document.getElementById(`input-comments-${postId}`);
     const text = input.value.trim();
     if (!text) return;
 
     try {
+        // 💡 送信するその瞬間に、最新のトークン（証明書）を取得し直す（これで時間が経ってもエラーにならない！）
+        const freshToken = await user.getIdToken(true);
+        
         const res = await fetch(`/api/suggestions/${postId}/comments`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${currentUserToken}`
+                "Authorization": `Bearer ${freshToken}`
             },
             body: JSON.stringify({ text: text })
         });
+        
         if (res.ok) {
             input.value = "";
             await loadComments(postId); // コメント欄を更新
@@ -449,7 +465,6 @@ window.submitComment = async function(postId) {
         alert("通信エラーが発生しました");
     }
 }
-
 // ==========================================
 // 🛡️ ユーティリティ（セキュリティ用の文字無害化処理）
 // ==========================================
